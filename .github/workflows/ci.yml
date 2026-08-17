@@ -1,8 +1,11 @@
-name: CI/CD
+name: CI
 
-# CI (test-api, test-ml, build-and-push) tourne sur les runners GitHub cloud —
-# pas besoin d'accès au cluster local. Seul le job "deploy" tourne sur le
-# runner auto-hébergé (ta machine), le seul à avoir accès à minikube.
+# Tout tourne sur les runners GitHub cloud (éphémères, jetables) — pas de
+# runner auto-hébergé : ce repo est public, et un runner auto-hébergé sur un
+# repo public est un risque de sécurité connu (une PR malveillante pourrait
+# exécuter du code sur la machine qui héberge le runner). Le déploiement vers
+# minikube reste donc une étape manuelle (voir README / commandes kubectl),
+# lancée volontairement en local après un build réussi.
 on:
   push:
     branches: [main]
@@ -123,33 +126,12 @@ jobs:
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-frontend:${{ github.sha }}
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-frontend:latest
 
-  # ── Déploiement — runner auto-hébergé (seul à avoir accès à minikube) ──────
-  deploy:
-    name: Déploiement (minikube local)
-    needs: build-and-push
-    if: github.event_name == 'push'
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-
-      # Idempotent : le namespace/les Services/etc existent déjà sur ce
-      # cluster local persistant — cette étape ne fait que réconcilier l'état
-      # (rien ne change pour la plupart des fichiers, sauf modif manifeste).
-      - name: Appliquer les manifests k8s
-        run: kubectl apply -f k8s/
-
-      # Les manifests versionnés référencent mailguard-api:latest (workflow de
-      # dev local, build direct dans le daemon minikube) — ici on surcharge
-      # de façon imperative avec l'image taguée au SHA du commit, fraîchement
-      # poussée sur ghcr.io, sans modifier les fichiers YAML.
-      - name: Pointer les Deployments vers les images de ce commit
+      - name: Résumé
         run: |
-          kubectl -n mailguard set image deployment/api api=${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-api:${{ github.sha }}
-          kubectl -n mailguard set image deployment/ml ml=${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-ml:${{ github.sha }}
-          kubectl -n mailguard set image deployment/frontend frontend=${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-frontend:${{ github.sha }}
-
-      - name: Attendre que les rollouts soient prêts
-        run: |
-          kubectl -n mailguard rollout status deployment/api --timeout=120s
-          kubectl -n mailguard rollout status deployment/ml --timeout=90s
-          kubectl -n mailguard rollout status deployment/frontend --timeout=90s
+          echo "Images publiées pour ce commit (${{ github.sha }}) :"
+          echo "  ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-api:${{ github.sha }}"
+          echo "  ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-ml:${{ github.sha }}"
+          echo "  ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-frontend:${{ github.sha }}"
+          echo ""
+          echo "Déploiement manuel (voir README) :"
+          echo "  kubectl -n mailguard set image deployment/api api=${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-api:${{ github.sha }}"
