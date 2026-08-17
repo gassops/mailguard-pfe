@@ -1,0 +1,95 @@
+@startuml architecture-generale
+!theme plain
+title MailGuard — Architecture Generale
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 11
+skinparam ArrowColor #555555
+skinparam ArrowThickness 1.5
+skinparam componentStyle rectangle
+
+skinparam package {
+  BackgroundColor<<client>>      #DBEAFE
+  BorderColor<<client>>          #3B82F6
+  FontColor<<client>>            #1E3A8A
+  BackgroundColor<<gateway>>     #DCFCE7
+  BorderColor<<gateway>>         #16A34A
+  FontColor<<gateway>>           #14532D
+  BackgroundColor<<core>>        #FEF9C3
+  BorderColor<<core>>            #CA8A04
+  FontColor<<core>>              #713F12
+  BackgroundColor<<storage>>     #FCE7F3
+  BorderColor<<storage>>         #DB2777
+  FontColor<<storage>>           #831843
+  BackgroundColor<<infra>>       #EDE9FE
+  BorderColor<<infra>>           #7C3AED
+  FontColor<<infra>>             #3B0764
+}
+
+package "Couche Client" <<client>> {
+  component "Web App"     as webapp
+  component "Mobile App"  as mobileapp
+  component "Dashboard"   as dashboard_c
+}
+
+package "API Gateway Layer  —  Node.js / Express" <<gateway>> {
+  component "Auth — API Key"         as auth
+  component "Rate Limiting — Redis"  as ratelimit
+  component "Routing"                as routing
+}
+
+package "Moteur d'analyse — Core Engine  (execution parallele)" <<core>> {
+  component "1 — Domain Blacklist"     as m1
+  component "2 — MX / SMTP Check"     as m2
+  component "3 — ML Scorer"           as m3
+  component "4 — Typo Detect"         as m4
+  component "5 — Domain Age (WHOIS)"  as m5
+  component "6 — Crowdsource Flagging" as m6
+  component "Score Aggregator\nVERDICT : VALID / SUSPICIOUS / INVALID  (score 0-100)" as aggregator #FBBF24
+}
+
+package "Stockage" <<storage>> {
+  database "MongoDB 7\ndomaines · logs · clients"  as mongodb
+  database "Redis 7\ncache · rate limiting"         as redis
+}
+
+package "Observabilite & Infra" <<infra>> {
+  component "Prometheus"    as prometheus
+  component "Grafana"       as grafana
+  component "Alertmanager"  as alertmanager
+  component "Docker  ·  Kubernetes (minikube/k3s)  ·  GitHub Actions  ·  k6" as devops #C4B5FD
+}
+
+' --- Flux Client -> Gateway ---
+webapp      --> auth : HTTPS / REST
+mobileapp   --> auth : HTTPS / REST
+dashboard_c --> auth : HTTPS / REST
+
+' --- Flux Gateway -> Core Engine (parallele) ---
+auth --> m1 : Appel interne
+auth --> m2
+auth --> m3
+auth --> m4
+auth --> m5
+auth --> m6
+
+' --- Fan-in : modules -> aggregator ---
+m1 --> aggregator
+m2 --> aggregator
+m3 --> aggregator
+m4 --> aggregator
+m5 --> aggregator
+m6 --> aggregator
+
+' --- Core -> Stockage ---
+aggregator --> mongodb : Lecture / Ecriture
+aggregator --> redis   : Cache
+
+' --- Stockage -> Observabilite ---
+mongodb --> prometheus : Metriques & Logs
+redis   --> prometheus
+prometheus --> grafana
+prometheus --> alertmanager
+
+@enduml

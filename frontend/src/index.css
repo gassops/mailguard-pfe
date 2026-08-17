@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { font-family: 'Inter', system-ui, sans-serif; }
+
+html { scroll-behavior: smooth; }
+
+.dark body { background: #0f1117; color: #f3f4f6; }

@@ -1,0 +1,31 @@
+@startuml diagramme-sequence-statistiques
+title Statistiques client
+
+autonumber
+skinparam sequenceArrowThickness 1.5
+skinparam responseMessageBelowArrow true
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+
+participant "Client"         as C
+participant "Passerelle API" as GW
+participant "Cache Redis"    as RC
+participant "MongoDB"        as DB
+
+C  ->  GW : Demander statistiques periode=30j + cle API
+GW ->  DB : Verification cle API
+DB --> GW : Autorise
+
+GW ->  RC : Recherche statistiques en cache
+alt Statistiques en cache
+    RC --> GW : Statistiques trouvees
+else Absent du cache
+    RC --> GW : Cache vide
+    GW ->  DB : Agregation des verifications 30 jours
+    DB --> GW : total, VALIDE, SUSPECT, INVALIDE, duree moyenne
+    GW ->  RC : Mise en cache TTL 5 min
+end
+
+GW --> C : 200 OK - total, verdicts, duree moyenne, taux cache
+
+@enduml

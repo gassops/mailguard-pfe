@@ -1,0 +1,108 @@
+services:
+
+  # ── API Node.js ──────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: mailguard-api
+    ports:
+      - "3000:3000"      # port local:port conteneur
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - MONGO_URI=mongodb://mongo:27017/mailguard
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - ML_SERVICE_URL=http://ml:5000
+      - CACHE_TTL_SECONDS=3600
+    depends_on:
+      - mongo
+      - redis
+    volumes:
+      - ./api:/app          # hot-reload en développement
+      - /app/node_modules   # évite d'écraser node_modules du conteneur
+      - ./docs:/docs        # openapi.yaml accessible dans le container
+      - ./ml-service/datasets:/app/datasets:ro   # datasets locaux pour la blacklist (voir importDomains.js)
+    restart: unless-stopped
+
+  # ── Frontend React ───────────────────────────────────────────────────────────
+  frontend:
+    build: ./frontend
+    container_name: mailguard-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # ── Service ML Python ────────────────────────────────────────────────────────
+  ml:
+    build: ./ml-service
+    container_name: mailguard-ml
+    ports:
+      - "5050:5000"
+    restart: unless-stopped
+
+  # ── MongoDB ──────────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: mailguard-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db   # persistance des données
+    restart: unless-stopped
+
+  # ── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine     # image légère (alpine = ~7MB vs ~100MB)
+    container_name: mailguard-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  # ── Prometheus ───────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: mailguard-prometheus
+    ports:
+      - "9091:9090"           # 9090 utilisé par un autre service sur cette machine
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus_data:/prometheus
+    depends_on:
+      - alertmanager
+    restart: unless-stopped
+
+  # ── Alertmanager ─────────────────────────────────────────────────────────────
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: mailguard-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    restart: unless-stopped
+
+  # ── Grafana ──────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: mailguard-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  grafana_data:
+  prometheus_data:

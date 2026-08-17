@@ -1,0 +1,149 @@
+# Prometheus — config identique à monitoring/prometheus.yml + alerts.yml
+# (docker-compose bind-monte ces fichiers ; en k8s on passe par un ConfigMap).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: mailguard
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval:     15s
+      evaluation_interval: 15s
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: ['alertmanager:9093']
+
+    rule_files:
+      - /etc/prometheus/alerts.yml
+
+    scrape_configs:
+
+      # Prometheus s'auto-surveille
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      # API Node.js — expose /metrics via prom-client (src/utils/metrics.js)
+      - job_name: 'mailguard-api'
+        metrics_path: /metrics
+        static_configs:
+          - targets: ['api:3000']
+            labels:
+              service: 'api'
+
+  alerts.yml: |
+    groups:
+      - name: mailguard-slo
+        rules:
+
+          - alert: APIDown
+            expr: up{job="mailguard-api"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "L'API MailGuard est inaccessible"
+              description: "Prometheus n'arrive plus à scraper {{ $labels.instance }} depuis 1 minute."
+
+          - alert: HighLatencyP95
+            expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="mailguard-api"}[5m])) by (le)) > 0.2
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Latence p95 au-dessus du SLO (200ms)"
+              description: "p95 = {{ $value | humanizeDuration }} sur les 5 dernières minutes."
+
+          - alert: HighLatencyP99
+            expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job="mailguard-api"}[5m])) by (le)) > 0.5
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Latence p99 au-dessus du SLO (500ms)"
+              description: "p99 = {{ $value | humanizeDuration }} sur les 5 dernières minutes."
+
+          - alert: HighErrorRate
+            expr: |
+              (
+                sum(rate(http_requests_total{job="mailguard-api", status=~"5.."}[5m]))
+                /
+                sum(rate(http_requests_total{job="mailguard-api"}[5m]))
+              ) > 0.005
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Taux d'erreur 5xx au-dessus du SLO (0.5%)"
+              description: "Taux d'erreur actuel : {{ $value | humanizePercentage }}."
+
+          - alert: LowCacheHitRatio
+            expr: |
+              (
+                sum(increase(mailguard_cache_hits_total[15m]))
+                /
+                (sum(increase(mailguard_cache_hits_total[15m])) + sum(increase(mailguard_cache_misses_total[15m])))
+              ) < 0.6
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Cache hit ratio sous le SLO (60%)"
+              description: "Hit ratio actuel : {{ $value | humanizePercentage }} sur 15 minutes."
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: mailguard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:latest
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus/
+            # Donnees ephemeres (emptyDir) : acceptable pour une demo locale —
+            # contrairement a Mongo, perdre l'historique de metriques au
+            # redemarrage n'affecte pas la correction fonctionnelle de l'app.
+            - name: data
+              mountPath: /prometheus
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: data
+          emptyDir: {}

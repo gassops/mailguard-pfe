@@ -1,0 +1,69 @@
+@startuml diagramme-cas-usage
+!theme plain
+
+
+left to right direction
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 11
+skinparam actorStyle awesome
+
+skinparam usecase {
+  BackgroundColor #EFF6FF
+  BorderColor     #3B82F6
+  FontSize        11
+}
+
+' ============================================================
+' ACTEURS
+' ============================================================
+actor "Client API"         as client #DBEAFE
+actor "Admin Dashboard"    as admin  #DCFCE7
+actor "Cron Job\n(systeme)" as cron  #FEF9C3
+
+' ============================================================
+' SYSTEM BOUNDARY
+' ============================================================
+rectangle "<<system>>  MailGuard API" #F8F9FA {
+
+  usecase "Verifier un email"                                    as uc1
+  usecase "Verifier en masse"                                    as uc2
+  usecase "Signaler faux positif / negatif"                      as uc3
+  usecase "Consulter les statistiques"                           as uc4
+  usecase "Configurer un webhook"                                as uc5
+  usecase "Consulter la blacklist"                               as uc6
+  usecase "Gerer sa cle API\n(generer / desactiver)"             as uc7
+  usecase "Configurer les seuils\nde verdict"                    as uc8
+  usecase "Voir tableau de bord\n(verdicts, usage, SLOs)"        as uc9
+  usecase "Recevoir notification webhook\n(verdict INVALID)"     as uc10
+  usecase "Verifier la sante API"                                as uc11
+  usecase "Mettre a jour la blacklist\n(cron hebdomadaire GitHub)" as uc12
+
+}
+
+' ============================================================
+' ASSOCIATIONS ACTEUR → CAS D'USAGE
+' ============================================================
+client --> uc1
+client --> uc2
+client --> uc3
+client --> uc4
+client --> uc5
+client --> uc6
+client --> uc11
+
+admin --> uc7
+admin --> uc8
+admin --> uc9
+admin --> uc4
+admin --> uc6
+
+cron --> uc12
+
+' ============================================================
+' RELATIONS UML (include / extend)
+' ============================================================
+uc2 .> uc1  : <<include>>
+uc10 .> uc1 : <<extend>>
+
+@enduml

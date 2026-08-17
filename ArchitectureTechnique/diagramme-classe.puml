@@ -1,0 +1,201 @@
+@startuml diagramme-classe
+!theme plain
+
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 10
+skinparam classAttributeIconSize 0
+
+skinparam class {
+  BackgroundColor<<modele>>   #DBEAFE
+  BorderColor<<modele>>       #3B82F6
+  FontColor<<modele>>         #1E3A8A
+  BackgroundColor<<module>>   #FEF9C3
+  BorderColor<<module>>       #CA8A04
+  FontColor<<module>>         #713F12
+  BackgroundColor<<service>>  #EDE9FE
+  BorderColor<<service>>      #7C3AED
+  FontColor<<service>>        #3B0764
+}
+
+' ============================================================
+' RANGÉE 1 — Modèles Mongoose (MongoDB)
+' ============================================================
+
+class Client <<modele>> {
+  - id            : ObjectId
+  - nom           : Chaine
+  - email         : Chaine
+  - cleApi        : Chaine
+  - limiteParMin  : Nombre
+  - urlWebhook    : Chaine
+  - actif         : Booleen
+  - creeA         : Date
+  __
+  + genererCleApi() : Chaine
+  + validerCle()    : Booleen
+}
+
+class Verification <<modele>> {
+  - id        : ObjectId
+  - refClient : ObjectId
+  - email     : Chaine
+  - domaine   : Chaine
+  - score     : Nombre (0-100)
+  - verdict   : Chaine
+  - details   : Objet
+  - dureeMs   : Nombre
+  - enCache   : Booleen
+  - creeA     : Date
+  __
+  + versReponse() : Objet
+}
+
+class Domaine <<modele>> {
+  - id             : ObjectId
+  - domaine        : Chaine
+  - estJetable     : Booleen
+  - source         : Chaine
+  - nbSignalements : Nombre
+  - actif          : Booleen
+  - ajouteLe       : Date
+  __
+  + estEnBlacklist() : Booleen
+}
+
+class Signalement <<modele>> {
+  - id        : ObjectId
+  - refClient : ObjectId
+  - email     : Chaine
+  - domaine   : Chaine
+  - type      : enum {FAUX_POSITIF, FAUX_NEGATIF}
+  - valide    : Booleen
+  - creeA     : Date
+  __
+  + valider() : void
+}
+
+class Webhook <<modele>> {
+  - id           : ObjectId
+  - refClient    : ObjectId
+  - url          : Chaine
+  - evenements   : Tableau<Chaine>
+  - actif        : Booleen
+  - derniereExec : Date
+  - creeA        : Date
+  __
+  + declencher(charge) : Promise
+}
+
+' ============================================================
+' RANGÉE 2 — Hiérarchie des modules d'analyse
+' ============================================================
+
+abstract class ModuleAnalyse <<module>> {
+  # poids    : Nombre
+  # scoreMax : Nombre
+  # nom      : Chaine
+  __
+  + analyser(email, domaine) : Promise
+  # obtPoids()               : Nombre
+  # normaliserScore(brut)    : Nombre
+}
+
+class ModuleBlacklist <<module>> {
+  - bd         : MongoClient
+  - emailsRole : Tableau
+  __
+  + analyser() : Objet
+}
+
+class ModuleValidationMX <<module>> {
+  - resolverDNS : dns.Resolver
+  __
+  + analyser() : Objet
+}
+
+class ModuleVerificationSMTP <<module>> {
+  - delai : Nombre
+  __
+  + analyser() : Objet
+}
+
+class ModuleAgeDomaine <<module>> {
+  - clientWhois : ClientWhois
+  __
+  + analyser() : Objet
+}
+
+class ModuleClassificateurML <<module>> {
+  - urlServiceML : Chaine
+  __
+  + analyser() : Objet
+}
+
+class ModuleSignalement <<module>> {
+  - seuil : Nombre
+  __
+  + analyser() : Objet
+}
+
+' ============================================================
+' RANGÉE 3 — Services
+' ============================================================
+
+class AggregateurScore <<service>> {
+  - poids : Objet
+  __
+  + agreger(scores)       : Resultat
+  + obtenirVerdict(score) : Chaine
+  + calculerPondere()     : Nombre
+}
+
+class GestionnaireCache <<service>> {
+  - redis     : IORedis
+  - ttlDefaut : Nombre
+  __
+  + obtenir(cle)            : Promise
+  + definir(cle, val, ttl)  : Promise
+  + invalider(cle)          : Promise
+}
+
+class ServiceWebhook <<service>> {
+  - clientHttp   : Axios
+  - nbTentatives : Nombre
+  __
+  + notifier(url, charge) : Promise
+  + reessayer(url, n)     : Promise
+}
+
+' ============================================================
+' NOTES — Poids des modules d'analyse
+' ============================================================
+note bottom of ModuleBlacklist        : Score 0-50 | Poids 0.40
+note bottom of ModuleValidationMX     : Score 0-20 | Poids 0.15
+note bottom of ModuleVerificationSMTP : Score 0-15 | Poids 0.15
+note bottom of ModuleAgeDomaine       : Score 0-10 | Poids 0.10
+note bottom of ModuleClassificateurML : Score 0-15 | Poids 0.15
+note bottom of ModuleSignalement      : Score 0-15 | Poids 0.05
+
+' ============================================================
+' RELATIONS
+' ============================================================
+
+' Relations entre modèles
+Client "1" --> "0..*" Verification : possede >
+Client "1" --> "0..*" Signalement  : soumet >
+Client "1" --> "0..*" Webhook      : configure >
+
+' Hiérarchie d'héritage
+ModuleBlacklist        --|> ModuleAnalyse
+ModuleValidationMX     --|> ModuleAnalyse
+ModuleVerificationSMTP --|> ModuleAnalyse
+ModuleAgeDomaine       --|> ModuleAnalyse
+ModuleClassificateurML --|> ModuleAnalyse
+ModuleSignalement      --|> ModuleAnalyse
+
+' Services → modules
+AggregateurScore ..> ModuleAnalyse : <<utilise>>
+
+@enduml

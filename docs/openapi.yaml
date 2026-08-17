@@ -1,0 +1,306 @@
+openapi: 3.0.3
+
+info:
+  title: MailGuard API
+  description: |
+    API de validation d'adresses email par analyse multi-modules.
+
+    ## Authentification
+    Toutes les routes (sauf `/health`) nécessitent un header `X-API-Key`.
+
+    ## Score & Verdict
+    Chaque email reçoit un **score de 0 à 100** calculé par 6 modules pondérés :
+    - `0 – 20`  → **VALID**
+    - `21 – 50` → **SUSPICIOUS**
+    - `51 – 100` → **INVALID**
+  version: 1.0.0
+  contact:
+    email: mohammedgassamma@gmail.com
+
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Développement
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  schemas:
+    VerifyResponse:
+      type: object
+      properties:
+        email:    { type: string, example: user@tempmail.com }
+        domain:   { type: string, example: tempmail.com }
+        verdict:  { type: string, enum: [VALID, SUSPICIOUS, INVALID] }
+        score:    { type: integer, minimum: 0, maximum: 100, example: 74 }
+        cached:   { type: boolean }
+        processingTimeMs: { type: integer, example: 412 }
+        reasons:
+          type: array
+          items: { type: string }
+          example: ["Domaine jetable connu (source: github)"]
+        details:
+          type: object
+          properties:
+            blacklist:
+              type: object
+              properties:
+                score:   { type: integer }
+                flagged: { type: boolean }
+            mx:
+              type: object
+              properties:
+                score: { type: integer }
+                valid: { type: boolean }
+                mx:    { type: string }
+            smtp:
+              type: object
+              properties:
+                score:  { type: integer }
+                exists: { type: boolean }
+                status: { type: string }
+            domainAge:
+              type: object
+              properties:
+                score:     { type: integer }
+                days:      { type: integer }
+                riskLevel: { type: string }
+            ml:
+              type: object
+              properties:
+                score:         { type: integer }
+                probability:   { type: number }
+                is_disposable: { type: boolean }
+            crowdsource:
+              type: object
+              properties:
+                score:      { type: integer }
+                correction: { type: string, nullable: true }
+                reports:    { type: integer }
+
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+
+  /health:
+    get:
+      summary: Santé de l'API
+      security: []
+      tags: [Système]
+      responses:
+        '200':
+          description: API opérationnelle
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:    { type: string, example: ok }
+                  timestamp: { type: string, format: date-time }
+
+  /verify:
+    post:
+      summary: Vérifier un email
+      description: Analyse complète via les 6 modules. Résultat mis en cache Redis 1h.
+      tags: [Vérification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email, example: user@tempmail.com }
+      responses:
+        '200':
+          description: Résultat
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerifyResponse' }
+        '400':
+          description: Email invalide
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Clé API manquante ou invalide
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429':
+          description: Quota dépassé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:    { type: string }
+                  limit:    { type: integer }
+                  reset_in: { type: string, example: "45s" }
+
+  /verify/bulk:
+    post:
+      summary: Vérifier plusieurs emails (max 50)
+      tags: [Vérification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [emails]
+              properties:
+                emails:
+                  type: array
+                  maxItems: 50
+                  items: { type: string, format: email }
+                  example: ["user@gmail.com", "test@tempmail.com"]
+      responses:
+        '200':
+          description: Résultats bulk
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:   { type: integer }
+                  results: { type: array, items: { $ref: '#/components/schemas/VerifyResponse' } }
+        '400':
+          description: Tableau invalide ou limite 50 dépassée
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /report:
+    post:
+      summary: Signaler un faux positif / négatif
+      description: |
+        Après 3 signalements indépendants, la correction est appliquée automatiquement.
+        - `FALSE_POSITIVE` : email légitime classé INVALID par erreur
+        - `FALSE_NEGATIVE` : email jetable classé VALID par erreur
+      tags: [Crowdsource]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, type]
+              properties:
+                email: { type: string, format: email }
+                type:  { type: string, enum: [FALSE_POSITIVE, FALSE_NEGATIVE] }
+      responses:
+        '201':
+          description: Signalement enregistré
+        '409':
+          description: Déjà signalé par ce client
+
+  /stats:
+    get:
+      summary: Statistiques du compte
+      tags: [Statistiques]
+      parameters:
+        - name: periode
+          in: query
+          description: Nombre de jours (défaut 30)
+          schema: { type: integer, default: 30 }
+      responses:
+        '200':
+          description: Statistiques
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  periode_jours:      { type: integer, example: 30 }
+                  total:              { type: integer, example: 1423 }
+                  verdicts:
+                    type: object
+                    properties:
+                      VALID:       { type: integer }
+                      SUSPICIOUS:  { type: integer }
+                      INVALID:     { type: integer }
+                  latence_moyenne_ms: { type: integer, example: 387 }
+
+  /webhook:
+    post:
+      summary: Configurer un webhook
+      description: Un seul webhook actif par client (upsert). URL HTTPS obligatoire.
+      tags: [Webhook]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  example: https://mon-app.com/webhooks/mailguard
+                events:
+                  type: array
+                  items: { type: string, enum: [VALID, SUSPICIOUS, INVALID] }
+                  default: [INVALID]
+      responses:
+        '201':
+          description: Webhook configuré
+        '400':
+          description: URL invalide (HTTPS requis)
+
+  /domains/blacklist:
+    get:
+      summary: Consulter la blacklist (paginée)
+      tags: [Blacklist]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 100 }
+      responses:
+        '200':
+          description: Liste paginée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:   { type: integer }
+                  page:    { type: integer }
+                  pages:   { type: integer }
+                  domains:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        domain:      { type: string }
+                        source:      { type: string, enum: [github, crowdsource, manual] }
+                        reportCount: { type: integer }
+                        addedAt:     { type: string, format: date-time }
+
+tags:
+  - name: Vérification
+    description: Analyse et validation d'emails
+  - name: Crowdsource
+    description: Signalements et corrections communautaires
+  - name: Statistiques
+    description: Métriques d'utilisation
+  - name: Webhook
+    description: Notifications en temps réel
+  - name: Blacklist
+    description: Gestion de la liste noire
+  - name: Système
+    description: Santé et monitoring

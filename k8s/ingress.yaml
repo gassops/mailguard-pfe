@@ -1,0 +1,28 @@
+# Nécessite l'addon ingress (minikube addons enable ingress).
+# Pas de rewrite-target : l'API attend les requêtes sur /api/v1/... tel quel,
+# donc le chemin doit être transmis intact au service "api".
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mailguard-ingress
+  namespace: mailguard
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: mailguard.local
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 3000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

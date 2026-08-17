@@ -1,0 +1,26 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+
+  # Prometheus s'auto-surveille
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # API Node.js — expose /metrics via prom-client (src/utils/metrics.js)
+  - job_name: 'mailguard-api'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['api:3000']
+        labels:
+          service: 'api'

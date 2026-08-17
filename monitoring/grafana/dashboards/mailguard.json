@@ -1,0 +1,154 @@
+{
+  "title": "MailGuard — API Overview",
+  "uid": "mailguard-overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Requêtes / sec",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(http_requests_total{job=\"mailguard-api\"}[5m]))", "legendFormat": "req/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "title": "Latence p95",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"mailguard-api\"}[5m])) by (le))", "legendFormat": "p95" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.2 },
+              { "color": "red", "value": 0.5 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Taux d'erreur 5xx",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{job=\"mailguard-api\", status=~\"5..\"}[5m])) / sum(rate(http_requests_total{job=\"mailguard-api\"}[5m]))",
+          "legendFormat": "erreur"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.005 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Cache hit ratio",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(increase(mailguard_cache_hits_total[15m])) / (sum(increase(mailguard_cache_hits_total[15m])) + sum(increase(mailguard_cache_misses_total[15m])))",
+          "legendFormat": "hit ratio"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0.6 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Débit de requêtes par statut",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        { "expr": "sum(rate(http_requests_total{job=\"mailguard-api\"}[5m])) by (status)", "legendFormat": "{{status}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "title": "Latence p50 / p95 / p99",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job=\"mailguard-api\"}[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"mailguard-api\"}[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=\"mailguard-api\"}[5m])) by (le))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 7,
+      "title": "Répartition des verdicts",
+      "type": "piechart",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 14 },
+      "targets": [
+        { "expr": "sum(increase(mailguard_verdicts_total[1h])) by (verdict)", "legendFormat": "{{verdict}}" }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Cache : hits vs misses",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 14 },
+      "targets": [
+        { "expr": "sum(rate(mailguard_cache_hits_total[5m]))", "legendFormat": "hits" },
+        { "expr": "sum(rate(mailguard_cache_misses_total[5m]))", "legendFormat": "misses" }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Mémoire RSS — API Node.js",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 14 },
+      "targets": [
+        { "expr": "process_resident_memory_bytes{job=\"mailguard-api\"}", "legendFormat": "RSS" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+@startuml diagramme-sequence-verification
+title Verification d'un email
+
+autonumber
+skinparam sequenceArrowThickness 1.5
+skinparam responseMessageBelowArrow true
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+
+participant "Client"           as C
+participant "Passerelle API"   as GW
+participant "Cache Redis"      as RC
+participant "MongoDB"          as DB
+participant "Moteur d'analyse" as AN
+participant "Webhook"          as WH
+
+C  ->  GW : Soumettre email + cle API
+
+GW ->  DB : Verification cle API
+DB --> GW : Autorise
+
+GW ->  RC : Verification quota
+RC --> GW : Quota respecte
+
+GW ->  RC : Recherche en cache
+alt Resultat en cache
+    RC --> GW : Resultat trouve
+    GW --> C  : 200 OK - verdict, score, en_cache=true
+else Absent du cache
+    RC --> GW : Cache vide
+
+    note over GW,AN : 6 modules en parallele
+    GW ->  AN : Analyser (Blacklist, MX, SMTP, ML, Age, Signalements)
+    AN --> GW : Scores partiels
+
+    GW ->  GW : Calcul score final (0-100) + verdict
+    GW ->  RC : Mise en cache TTL 1h
+    GW ->  DB : Journalisation
+
+    GW --> C  : 200 OK - email, verdict, score, details
+
+    alt Webhook configure ET verdict = INVALIDE
+        GW ->  WH : Envoyer notification
+        WH --> C  : email, verdict, score
+    end
+end
+
+@enduml

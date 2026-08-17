@@ -1,0 +1,63 @@
+groups:
+  - name: mailguard-slo
+    rules:
+
+      # ── Disponibilité ──────────────────────────────────────────────────────────
+      - alert: APIDown
+        expr: up{job="mailguard-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "L'API MailGuard est inaccessible"
+          description: "Prometheus n'arrive plus à scraper {{ $labels.instance }} depuis 1 minute."
+
+      # ── Latence — SLO p95 < 200ms ────────────────────────────────────────────────
+      - alert: HighLatencyP95
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="mailguard-api"}[5m])) by (le)) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latence p95 au-dessus du SLO (200ms)"
+          description: "p95 = {{ $value | humanizeDuration }} sur les 5 dernières minutes."
+
+      # ── Latence — SLO p99 < 500ms ────────────────────────────────────────────────
+      - alert: HighLatencyP99
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job="mailguard-api"}[5m])) by (le)) > 0.5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Latence p99 au-dessus du SLO (500ms)"
+          description: "p99 = {{ $value | humanizeDuration }} sur les 5 dernières minutes."
+
+      # ── Taux d'erreur — SLO < 0.5% ────────────────────────────────────────────────
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{job="mailguard-api", status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{job="mailguard-api"}[5m]))
+          ) > 0.005
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Taux d'erreur 5xx au-dessus du SLO (0.5%)"
+          description: "Taux d'erreur actuel : {{ $value | humanizePercentage }}."
+
+      # ── Cache hit ratio — SLO > 60% ───────────────────────────────────────────────
+      - alert: LowCacheHitRatio
+        expr: |
+          (
+            sum(increase(mailguard_cache_hits_total[15m]))
+            /
+            (sum(increase(mailguard_cache_hits_total[15m])) + sum(increase(mailguard_cache_misses_total[15m])))
+          ) < 0.6
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cache hit ratio sous le SLO (60%)"
+          description: "Hit ratio actuel : {{ $value | humanizePercentage }} sur 15 minutes."

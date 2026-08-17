@@ -1,0 +1,155 @@
+name: CI/CD
+
+# CI (test-api, test-ml, build-and-push) tourne sur les runners GitHub cloud —
+# pas besoin d'accès au cluster local. Seul le job "deploy" tourne sur le
+# runner auto-hébergé (ta machine), le seul à avoir accès à minikube.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+
+  # ── Tests API (Node.js) — Mongo/Redis réels en service containers ──────────
+  test-api:
+    name: Tests API (Node.js)
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping:1})' --quiet"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: npm ci
+        working-directory: api
+        run: npm ci
+
+      - name: Jest (unitaires + intégration)
+        working-directory: api
+        run: npx jest
+
+  # ── Tests ML (Python) — logique pure, pas de dépendance réseau ─────────────
+  test-ml:
+    name: Tests ML (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: ml-service/requirements.txt
+
+      - name: Dépendances
+        working-directory: ml-service
+        run: pip install -r requirements.txt pytest
+
+      - name: Pytest
+        working-directory: ml-service
+        run: python -m pytest tests/test_train.py -q
+
+  # ── Build + push vers ghcr.io — seulement sur push (pas sur les PR) ────────
+  build-and-push:
+    name: Build + push images
+    needs: [test-api, test-ml]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Connexion à ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Contexte = racine du repo (pas ./api) — api/Dockerfile a besoin
+      # d'accéder à ml-service/datasets/ (voir importDomains.js).
+      - name: Build + push — api
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-api:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-api:latest
+
+      # Le modèle ML est entraîné pendant ce build (voir ml-service/Dockerfile,
+      # stage "trainer") — télécharge les datasets GitHub, ~30-60s.
+      - name: Build + push — ml
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ml-service
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-ml:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-ml:latest
+
+      - name: Build + push — frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-frontend:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-frontend:latest
+
+  # ── Déploiement — runner auto-hébergé (seul à avoir accès à minikube) ──────
+  deploy:
+    name: Déploiement (minikube local)
+    needs: build-and-push
+    if: github.event_name == 'push'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      # Idempotent : le namespace/les Services/etc existent déjà sur ce
+      # cluster local persistant — cette étape ne fait que réconcilier l'état
+      # (rien ne change pour la plupart des fichiers, sauf modif manifeste).
+      - name: Appliquer les manifests k8s
+        run: kubectl apply -f k8s/
+
+      # Les manifests versionnés référencent mailguard-api:latest (workflow de
+      # dev local, build direct dans le daemon minikube) — ici on surcharge
+      # de façon imperative avec l'image taguée au SHA du commit, fraîchement
+      # poussée sur ghcr.io, sans modifier les fichiers YAML.
+      - name: Pointer les Deployments vers les images de ce commit
+        run: |
+          kubectl -n mailguard set image deployment/api api=${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-api:${{ github.sha }}
+          kubectl -n mailguard set image deployment/ml ml=${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-ml:${{ github.sha }}
+          kubectl -n mailguard set image deployment/frontend frontend=${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-frontend:${{ github.sha }}
+
+      - name: Attendre que les rollouts soient prêts
+        run: |
+          kubectl -n mailguard rollout status deployment/api --timeout=120s
+          kubectl -n mailguard rollout status deployment/ml --timeout=90s
+          kubectl -n mailguard rollout status deployment/frontend --timeout=90s

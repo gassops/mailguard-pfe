@@ -1,0 +1,101 @@
+@startuml mongodb-schema
+!theme plain
+
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 11
+skinparam entity {
+  BackgroundColor #1168BD
+  BorderColor     #0B4884
+  FontColor       #FFFFFF
+}
+
+' ============================================================
+' LÉGENDE
+' ============================================================
+legend top right
+  | Symbole | Signification               |
+  | <<CP>>  | Clé primaire (ObjectId)     |
+  | <<CE>>  | Clé étrangère (ref ObjectId)|
+  | (idx)   | Index MongoDB               |
+  | 1:N     | Relation un-à-plusieurs     |
+endlegend
+
+' ============================================================
+' COLLECTIONS
+' ============================================================
+
+entity "clients" as clients {
+  * _id                    : ObjectId <<CP>>
+  --
+  nom                      : Chaine
+  email                    : Chaine
+  cleApi                   : Chaine  (unique, idx)
+  limiteParMin             : Nombre  (défaut : 100)
+  urlWebhook               : Chaine  (optionnel)
+  seuils.suspect           : Nombre  (défaut : 21)
+  seuils.invalide          : Nombre  (défaut : 51)
+  actif                    : Booléen (défaut : true)
+  creeA                    : Date    (auto)
+}
+
+entity "domaines  (blacklist)" as domains {
+  * _id          : ObjectId <<CP>>
+  --
+  domaine        : Chaine   (unique, idx)
+  estJetable     : Booléen
+  source         : enum {github, crowdsource, manuel}
+  nbSignalements : Nombre   (défaut : 0)
+  actif          : Booléen  (défaut : true)
+  ajouteLe       : Date
+  misAJourLe     : Date
+}
+
+entity "verifications" as verifications {
+  * _id        : ObjectId <<CP>>
+  # refClient  : ObjectId <<CE>>
+  --
+  email        : Chaine   (idx)
+  domaine      : Chaine
+  score        : Nombre   (0-100)
+  verdict      : enum {VALIDE, SUSPECT, INVALIDE}
+  details      : Objet    {blacklist, mx_check, smtp_check,\n               domain_age, ml_classifier, crowdsource}
+  dureeMs      : Nombre
+  enCache      : Booléen
+  creeA        : Date     (idx, TTL 90j)
+}
+
+entity "signalements  (crowdsource)" as reports {
+  * _id        : ObjectId <<CP>>
+  # refClient  : ObjectId <<CE>>
+  --
+  email        : Chaine   (idx)
+  domaine      : Chaine
+  type         : enum {FAUX_POSITIF, FAUX_NEGATIF}
+  valide       : Booléen  (défaut : false)
+  valideA      : Date     (optionnel)
+  creeA        : Date
+}
+
+entity "webhooks" as webhooks {
+  * _id          : ObjectId <<CP>>
+  # refClient    : ObjectId <<CE>>
+  --
+  url            : Chaine           (HTTPS)
+  evenements     : Tableau<Chaine>  (['INVALIDE'])
+  actif          : Booléen          (défaut : true)
+  secret         : Chaine           (signature HMAC)
+  derniereExec   : Date
+  creeA          : Date
+}
+
+' ============================================================
+' RELATIONS ERD  (notation 1:N)
+' ============================================================
+clients      ||--|{ verifications : "1:N  refClient"
+clients      ||--|{ reports       : "1:N  refClient"
+clients      ||--|{ webhooks      : "1:N  refClient"
+reports      }o..o{ domains      : "enrichit\n(crowdsource → blacklist)"
+
+@enduml

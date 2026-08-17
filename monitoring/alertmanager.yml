@@ -1,0 +1,21 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: 'default'
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - match:
+        severity: critical
+      receiver: 'critical'
+
+receivers:
+  # Récepteur par défaut — log uniquement (pas d'intégration externe pour ce projet)
+  - name: 'default'
+
+  # Récepteur "critical" — placeholder pour une intégration Slack/email en production
+  # En PFE/local : les alertes critiques restent visibles dans l'UI Alertmanager (port 9093)
+  - name: 'critical'

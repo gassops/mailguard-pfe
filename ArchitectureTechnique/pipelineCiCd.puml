@@ -1,0 +1,42 @@
+@startuml
+skinparam backgroundColor #FEFEFE
+skinparam ArrowColor #333333
+skinparam defaultTextAlignment center
+
+skinparam rectangle {
+    BorderColor #2C3E50
+    BackgroundColor #ECF0F1
+    FontColor #2C3E50
+}
+
+title Pipeline CI/CD
+
+rectangle "GitHub" as github #D6EAF8
+
+rectangle "GitHub Actions" as actions #FCF3CF
+
+rectangle "Build" as build #D5F5E3
+rectangle "Tests" as tests #D5F5E3
+
+rectangle "Docker" as docker #D6EAF8
+rectangle "GHCR\n(GitHub Container Registry)" as ghcr #D6EAF8
+
+rectangle "Self-hosted Runner\nsur Ubuntu" as runner #FADBD8
+
+rectangle "kubectl" as kubectl #E8DAEF
+rectangle "Minikube" as minikube #E8DAEF
+
+rectangle "Application" as app #FDEBD0
+
+github        --> actions  : git push
+actions       --> build
+actions       --> tests
+build         --> docker
+tests         --> docker
+docker        --> ghcr     : push image
+ghcr          --> runner   : pull image
+runner        --> kubectl
+kubectl       --> minikube : deploy
+minikube      --> app
+
+@enduml

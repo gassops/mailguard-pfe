@@ -1,0 +1,39 @@
+# Redis = cache pur, pas de PVC : la perte de données au redémarrage est
+# acceptable (cohérent avec la stratégie fail-open de l'API — voir verify.js).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: mailguard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 20

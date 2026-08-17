@@ -1,0 +1,15 @@
+# Variables d'environnement non sensibles, partagées par l'API.
+# Les noms de service (mongo, redis, ml) correspondent aux Service Kubernetes
+# définis dans services.yaml — la résolution DNS interne au cluster fait le reste.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mailguard-config
+  namespace: mailguard
+data:
+  NODE_ENV:          "production"
+  PORT:               "3000"
+  REDIS_HOST:        "redis"
+  REDIS_PORT:         "6379"
+  ML_SERVICE_URL:    "http://ml:5000"
+  CACHE_TTL_SECONDS:  "3600"

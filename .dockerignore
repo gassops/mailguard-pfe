@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+.git
+ml-service/model
+frontend/node_modules
+frontend/dist
+k8s
+monitoring
+docs
+ArchitectureTechnique

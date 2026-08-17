@@ -1,0 +1,48 @@
+@startuml diagramme-etat-domaine
+!theme plain
+title MailGuard — États : Cycle de Vie d'un Domaine
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 11
+skinparam ArrowColor #555555
+skinparam ArrowThickness 1.5
+
+skinparam state {
+  BackgroundColor #EFF6FF
+  BorderColor     #3B82F6
+  FontColor       #1E3A8A
+}
+
+[*] --> Actif : importDomains.js\n(datasets GitHub)\nou ajout manuel
+
+state Actif {
+  note : isDisposable = true\nactif = true\nsource = github
+}
+
+state "En cours de signalement" as signalement {
+  state "1 signalement" as s1
+  state "2 signalements" as s2
+
+  s1 --> s2 : nouveau signalement\nindépendant
+}
+
+Actif      --> s1          : 1er signalement\nclient (crowdsource)
+s2         --> Blackliste  : 3e signalement atteint\n→ promotion automatique
+
+state Blackliste {
+  note : source = crowdsource\nreportCount ≥ 3\nisDisposable = true
+}
+
+Actif      --> Desactive   : désactivation\nadministrateur
+Blackliste --> Desactive   : révocation\nadministrateur
+Desactive  --> Actif       : réactivation\nadministrateur
+
+state Desactive {
+  note : actif = false
+}
+
+Blackliste --> [*]
+Desactive  --> [*]
+
+@enduml

@@ -1,0 +1,29 @@
+@startuml diagramme-sequence-signalement
+title Signalement crowdsource
+
+autonumber
+skinparam sequenceArrowThickness 1.5
+skinparam responseMessageBelowArrow true
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+
+participant "Client"         as C
+participant "Passerelle API" as GW
+participant "MongoDB"        as DB
+
+C  ->  GW : Signaler email, type + cle API
+GW ->  DB : Verification cle API
+DB --> GW : Autorise
+
+GW ->  DB : Enregistrer le signalement
+GW ->  DB : Compter les signalements valides
+DB --> GW : compteur = 3
+
+alt 3 signalements independants atteints
+    GW ->  DB : Mettre a jour la blacklist
+    note over GW : Correction appliquee automatiquement
+end
+
+GW --> C : 201 Cree - Signalement enregistre
+
+@enduml

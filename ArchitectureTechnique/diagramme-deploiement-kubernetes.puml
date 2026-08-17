@@ -1,0 +1,77 @@
+@startuml diagramme-deploiement-kubernetes
+!theme plain
+title MailGuard — Déploiement Kubernetes (minikube)
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 10
+skinparam ArrowColor #555555
+skinparam ArrowThickness 1.5
+
+skinparam node {
+  BackgroundColor #F8FAFC
+  BorderColor #94A3B8
+}
+
+skinparam component {
+  BackgroundColor #DBEAFE
+  BorderColor #3B82F6
+  FontColor #1E3A8A
+}
+
+skinparam database {
+  BackgroundColor #FCE7F3
+  BorderColor #DB2777
+  FontColor #831843
+}
+
+skinparam storage {
+  BackgroundColor #EDE9FE
+  BorderColor #7C3AED
+}
+
+' ── Acteurs externes ──────────────────────────────────────
+actor       "Navigateur"      as user
+component   "GitHub Actions"  as ci  #EDE9FE
+
+' ── Cluster ───────────────────────────────────────────────
+node "Cluster Kubernetes — namespace : mailguard" {
+
+  component "Ingress nginx\n(mailguard.local)" as ingress #DCFCE7
+
+  node "Pods frontend  ×2" {
+    component "Nginx / React\n:80" as frontend
+  }
+
+  node "Pods api  ×2  [HPA : 2–6]" {
+    component "Node.js / Express\n:3000" as api
+  }
+
+  node "Pod ml" {
+    component "Python / Flask\n:5000" as ml
+  }
+
+  node "Pod mongo" {
+    database "MongoDB 7\n:27017" as mongo
+  }
+
+  node "Pod redis" {
+    database "Redis 7\n:6379" as redis
+  }
+
+  storage "PersistentVolume\nmongo-pvc  2 Gi" as pvc
+
+  ' ── Flux internes ──
+  ingress  -->  frontend : /
+  ingress  -->  api      : /api
+  api      -->  mongo    : TCP 27017
+  api      -->  redis    : TCP 6379
+  api      -->  ml       : HTTP :5000
+  mongo    -->  pvc      : montage volume
+}
+
+' ── Flux externes ──
+user  -->  ingress : HTTPS
+ci   ..>   api    : image Docker\n(kubectl rollout)
+
+@enduml

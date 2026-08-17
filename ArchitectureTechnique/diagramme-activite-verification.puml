@@ -1,0 +1,77 @@
+@startuml diagramme-activite-verification
+!theme plain
+
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 11
+skinparam ActivityBackgroundColor #EFF6FF
+skinparam ActivityBorderColor #3B82F6
+skinparam ActivityDiamondBackgroundColor #FEF9C3
+skinparam ActivityDiamondBorderColor #CA8A04
+skinparam ArrowColor #555555
+
+start
+
+:Recevoir la requête\n{email + clé API};
+
+:Vérifier la clé API (MongoDB);
+if (Clé valide ?) then (non)
+  :Répondre 401 — Non autorisé; <<#FECACA>>
+  stop
+endif
+
+:Vérifier le quota (Redis);
+if (Quota dépassé ?) then (oui)
+  :Répondre 429 — Trop de requêtes; <<#FECACA>>
+  stop
+endif
+
+:Rechercher dans le cache Redis;
+if (Résultat en cache ?) then (oui)
+  :Retourner le résultat\nenCache : true; <<#BBF7D0>>
+  stop
+endif
+
+note right
+  Cache manqué
+  → analyse complète
+end note
+
+fork
+  :Module Blacklist\nscore 0-50 | poids 0,40;
+fork again
+  :Module Validation MX\nscore 0-20 | poids 0,15;
+fork again
+  :Module Vérification SMTP\nscore 0-15 | poids 0,15;
+fork again
+  :Module Âge du domaine\nscore 0-10 | poids 0,10;
+fork again
+  :Module Classificateur ML\nscore 0-15 | poids 0,15;
+fork again
+  :Module Signalements\nscore 0-15 | poids 0,05;
+end fork
+
+:Agréger les scores pondérés\n→ Score final (0–100);
+
+if (score ≤ 20 ?) then (oui)
+  :Verdict : VALIDE; <<#BBF7D0>>
+elseif (score ≤ 50 ?) then (oui)
+  :Verdict : SUSPECT; <<#FEF08A>>
+else (score > 50)
+  :Verdict : INVALIDE; <<#FECACA>>
+endif
+
+:Mettre en cache Redis\n(TTL 1h);
+
+:Journaliser dans MongoDB\n(collection verifications);
+
+if (Webhook configuré\nET verdict = INVALIDE ?) then (oui)
+  :Envoyer notification webhook\n{email, verdict, score};
+endif
+
+:Retourner réponse 200\n{email, verdict, score, détails};
+
+stop
+
+@enduml
