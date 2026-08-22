@@ -73,11 +73,11 @@ jobs:
         working-directory: ml-service
         run: python -m pytest tests/test_train.py -q
 
-  # ── Build + push vers ghcr.io — seulement sur push (pas sur les PR) ────────
+  # ── Build + push vers ghcr.io — sur push ou déclenchement manuel (pas les PR) ─
   build-and-push:
     name: Build + push images
     needs: [test-api, test-ml]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
