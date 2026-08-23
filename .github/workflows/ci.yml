@@ -102,6 +102,7 @@ jobs:
           context: .
           file: api/Dockerfile
           push: true
+          provenance: false
           tags: |
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-api:${{ github.sha }}
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-api:latest
@@ -113,6 +114,7 @@ jobs:
         with:
           context: ./ml-service
           push: true
+          provenance: false
           tags: |
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-ml:${{ github.sha }}
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-ml:latest
@@ -122,6 +124,7 @@ jobs:
         with:
           context: ./frontend
           push: true
+          provenance: false
           tags: |
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-frontend:${{ github.sha }}
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/mailguard-frontend:latest
