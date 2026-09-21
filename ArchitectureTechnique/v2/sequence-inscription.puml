@@ -1,0 +1,34 @@
+@startuml sequence-inscription
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam dpi 150
+skinparam shadowing false
+skinparam sequenceArrowThickness 1.5
+autonumber
+actor "Utilisateur" as U
+participant "API" as A
+participant "MongoDB" as D
+U -> A : POST /api/v1/auth/register {name, email, password}
+A -> A : valider les champs (mot de passe ≥ 8 caractères)
+A -> D : Client.create (bcrypt du mot de passe, apiKey générée)
+alt email déjà utilisé
+  D --> A : erreur 11000
+  A --> U : 409 Conflict
+else succès
+  D --> A : client
+  A --> U : 201 {apiKey, name, email}
+end
+U -> A : POST /api/v1/auth/login {email, password}
+A -> D : Client.findOne({email, active})
+A -> A : bcrypt.compare(password, hash)
+alt identifiants valides
+  A --> U : 200 {apiKey}
+else invalides
+  A --> U : 401
+end
+U -> A : GET /api/v1/me  (X-API-Key)
+A -> D : Client.findOne({apiKey, active})
+A --> U : 200 {profil, quota}
+@enduml

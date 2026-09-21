@@ -1,0 +1,30 @@
+@startuml pipeline-cicd
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam dpi 150
+skinparam shadowing false
+skinparam rectangle {
+  BorderColor #2C3E50
+  FontColor #2C3E50
+}
+rectangle "Développeur\ngit push / PR sur main" as dev #D6EAF8
+rectangle "GitHub Actions — runner hébergé" as gha #FCF3CF {
+  rectangle "test-api\nJest + MongoDB + Redis" as t1 #D5F5E3
+  rectangle "test-ml\npytest" as t2 #D5F5E3
+  rectangle "build-and-push\n(api, ml, frontend)" as bp #D5F5E3
+}
+rectangle "GHCR\nghcr.io/<owner>/mailguard-*\ntags : SHA du commit + latest" as ghcr #D6EAF8
+rectangle "Opérateur\n(geste manuel)" as op #FADBD8
+rectangle "kubectl set image\n+ rollout status" as k #E8DAEF
+rectangle "Cluster minikube\nnamespace mailguard" as mk #E8DAEF
+dev --> t1
+dev --> t2
+t1 --> bp : needs
+t2 --> bp : needs
+bp --> ghcr : push (hors PR)
+ghcr ..> op : image disponible
+op --> k
+k --> mk : déploiement
+@enduml

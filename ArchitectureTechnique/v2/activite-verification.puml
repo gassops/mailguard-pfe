@@ -1,0 +1,51 @@
+@startuml activite-verification
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam dpi 150
+skinparam shadowing false
+skinparam ActivityBackgroundColor #EFF6FF
+skinparam ActivityBorderColor #3B82F6
+skinparam ActivityDiamondBackgroundColor #FEF9C3
+skinparam ActivityDiamondBorderColor #CA8A04
+start
+:Recevoir POST /api/v1/verify {email};
+partition "Contrôles d'accès (middlewares)" {
+  if (Clé API valide, rate limit\net quota mensuel respectés ?) then (non)
+    #FECACA:401 Non autorisé\nou 429 Too Many Requests;
+    stop
+  endif
+  if (Email valide ?) then (non)
+    #FECACA:400 Requête invalide;
+    stop
+  endif
+}
+if (Cache verify:<email> ?) then (hit)
+  #BBF7D0:Répondre cached = true;
+  stop
+endif
+fork
+  :Blacklist;
+fork again
+  :MX\n(cache domaine 24 h);
+fork again
+  :Âge du domaine WHOIS\n(cache domaine 24 h);
+fork again
+  :Classifieur ML\n(cache domaine 1 h);
+fork again
+  :Crowdsource\n(cache domaine 60 s);
+end fork
+if (Résultat SMTP en cache ?) then (oui)
+  :Utiliser le résultat SMTP;
+else (non)
+  :Lancer le SMTP en arrière-plan;
+  :SMTP = PENDING (score 0);
+endif
+:Agréger les scores pondérés\n→ score final et verdict;
+:Journaliser dans MongoDB\nincrémenter le quota;
+:Mettre en cache Redis\n(1 h, ou 60 s si PENDING);
+:Notifier le webhook\n(asynchrone, si verdict souscrit);
+#BBF7D0:Répondre 200 {verdict, score, details};
+stop
+@enduml

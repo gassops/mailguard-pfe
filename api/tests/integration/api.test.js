@@ -271,6 +271,42 @@ describe('POST /api/v1/verify', () => {
     expect(cached.score).toBe(res1.body.score);
   });
 
+  test('SMTP asynchrone : réponse PENDING, puis verdict affiné en cache et en base', async () => {
+    const smtp = require('../../src/modules/smtp');
+    smtp.analyze.mockResolvedValueOnce({
+      score: 15, exists: false, status: 'NOT_EXISTS', responseCode: 550,
+      reasons: ['Boîte mail inexistante (code SMTP 550)'],
+    });
+
+    const res = await request(app)
+      .post('/api/v1/verify')
+      .set('X-API-Key', apiKey)
+      .send({ email: 'ghost@gmail.com' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.details.smtp_check.status).toBe('PENDING');
+
+    const { getRedis } = require('../../src/utils/redis');
+    let cached;
+    for (let i = 0; i < 40; i++) {
+      cached = JSON.parse(await getRedis().get('verify:ghost@gmail.com'));
+      if (cached.details.smtp_check.status === 'NOT_EXISTS') break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    expect(cached.details.smtp_check.status).toBe('NOT_EXISTS');
+    expect(cached.score).toBeGreaterThan(res.body.score);
+
+    let stored;
+    for (let i = 0; i < 40; i++) {
+      stored = await Verification.findOne({ clientId: testClient._id, email: 'ghost@gmail.com' });
+      if (stored.details.smtp_check.score === 15) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(stored.details.smtp_check.score).toBe(15);
+    expect(stored.details.smtp_check.exists).toBe(false);
+  });
+
   // ── Quota MongoDB ────────────────────────────────────────────────────────────
 
   test('429 si quota épuisé (quotaUsed >= quotaLimit en MongoDB)', async () => {

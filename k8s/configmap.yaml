@@ -13,3 +13,9 @@ data:
   REDIS_PORT:         "6379"
   ML_SERVICE_URL:    "http://ml:5000"
   CACHE_TTL_SECONDS:  "3600"
+  # Résolution DNS (dns.lookup, utilisée par net.connect dans smtp.js et par le
+  # module whois dans domainAge.js) passe par le thread pool libuv, limité à 4
+  # threads par défaut — goulot d'étranglement identifié lors des tests k6
+  # (chapitre 6). Relevé à 64 pour absorber la charge concurrente.
+  UV_THREADPOOL_SIZE: "64"
+  WHOIS_CACHE_TTL_SECONDS: "86400"

@@ -1,5 +1,7 @@
-# Prometheus — config identique à monitoring/prometheus.yml + alerts.yml
-# (docker-compose bind-monte ces fichiers ; en k8s on passe par un ConfigMap).
+# Prometheus — alertes identiques à monitoring/alerts.yml. Le job de scrape de
+# l'API diffère volontairement de monitoring/prometheus.yml : docker-compose n'a
+# qu'un conteneur `api` (cible statique suffisante), k8s en a plusieurs (voir
+# le Service headless dans services.yaml).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -27,12 +29,19 @@ data:
           - targets: ['localhost:9090']
 
       # API Node.js — expose /metrics via prom-client (src/utils/metrics.js)
+      # Découverte DNS via le Service headless : un target par pod (l'HPA fait
+      # varier leur nombre de 2 à 6), donc une série par pod et des rate()
+      # corrects. Ne pas repasser sur `api:3000` — voir k8s/services.yaml.
       - job_name: 'mailguard-api'
         metrics_path: /metrics
-        static_configs:
-          - targets: ['api:3000']
-            labels:
-              service: 'api'
+        dns_sd_configs:
+          - names: ['api-headless.mailguard.svc.cluster.local']
+            type: A
+            port: 3000
+            refresh_interval: 15s
+        relabel_configs:
+          - target_label: service
+            replacement: api
 
   alerts.yml: |
     groups:
@@ -40,13 +49,16 @@ data:
         rules:
 
           - alert: APIDown
-            expr: up{job="mailguard-api"} == 0
+            # Avec la découverte DNS, un pod disparu n'a plus de série `up` : le
+            # `== 0` seul ne se déclencherait jamais si TOUS les pods tombent.
+            # `absent(... == 1)` couvre ce cas (plus aucune cible saine).
+            expr: (up{job="mailguard-api"} == 0) or absent(up{job="mailguard-api"} == 1)
             for: 1m
             labels:
               severity: critical
             annotations:
               summary: "L'API MailGuard est inaccessible"
-              description: "Prometheus n'arrive plus à scraper {{ $labels.instance }} depuis 1 minute."
+              description: "Prometheus ne peut plus scraper au moins un pod API (ou aucun pod sain n'est découvert) depuis 1 minute."
 
           - alert: HighLatencyP95
             expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="mailguard-api"}[5m])) by (le)) > 0.2

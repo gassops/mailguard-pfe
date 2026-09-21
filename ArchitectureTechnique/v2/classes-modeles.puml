@@ -1,0 +1,67 @@
+@startuml classes-modeles
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam dpi 150
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #DBEAFE
+  BorderColor #3B82F6
+}
+class Client {
+  name : String
+  email : String <<unique>>
+  password : String <<bcrypt>>
+  apiKey : String <<unique>>
+  rateLimitPerMin : Number = 100
+  quotaLimit : Number = 100
+  quotaUsed : Number
+  quotaResetAt : Date
+  thresholds : {suspicious=21, invalid=51}
+  webhookUrl : String
+  active : Boolean
+  __
+  verifyPassword(plain) : Promise<Boolean>
+}
+class Verification {
+  clientId : ObjectId
+  email : String
+  domain : String
+  score : Number [0-100]
+  verdict : VALID | SUSPICIOUS | INVALID
+  details : {6 modules}
+  processingTimeMs : Number
+  cached : Boolean
+  createdAt : Date <<TTL 90 j>>
+}
+class Domain {
+  domain : String <<unique>>
+  isDisposable : Boolean
+  source : github | crowdsource | manual
+  reportCount : Number
+  active : Boolean
+  addedAt : Date
+}
+class Report {
+  clientId : ObjectId
+  email : String
+  domain : String
+  type : FALSE_POSITIVE | FALSE_NEGATIVE
+  validated : Boolean
+  validatedAt : Date
+}
+class Webhook {
+  clientId : ObjectId
+  url : String <<HTTPS>>
+  events : String[]
+  active : Boolean
+  secret : String <<HMAC>>
+  lastTriggered : Date
+}
+Client "1" --> "0..*" Verification : possède
+Client "1" --> "0..*" Report : soumet
+Client "1" --> "0..1" Webhook : configure
+Report "0..*" ..> "0..1" Domain : validé à 3 signalements
+@enduml

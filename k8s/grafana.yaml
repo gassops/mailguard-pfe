@@ -196,6 +196,714 @@ data:
         }
       ]
     }
+  mailguard-slo.json: |
+    {
+      "title": "MailGuard — SLO",
+      "uid": "mailguard-slo",
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "",
+      "editable": true,
+      "time": {
+        "from": "now-15m",
+        "to": "now"
+      },
+      "templating": {
+        "list": [
+          {
+            "name": "slo_p95",
+            "label": "Objectif P95 (s)",
+            "type": "custom",
+            "query": "nominal (P95 < 200 ms) : 0.2,stress (P95 < 3 s) : 3",
+            "hide": 0,
+            "multi": false,
+            "includeAll": false,
+            "current": {
+              "selected": true,
+              "text": "nominal (P95 < 200 ms)",
+              "value": "0.2"
+            },
+            "options": [
+              {
+                "selected": true,
+                "text": "nominal (P95 < 200 ms)",
+                "value": "0.2"
+              },
+              {
+                "selected": false,
+                "text": "stress (P95 < 3 s)",
+                "value": "3"
+              }
+            ]
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "SLO 1 — Disponibilité (≥ 99,5 %)",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "gridPos": {
+            "h": 4,
+            "w": 5,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "expr": "100 * (1 - (sum(increase(http_requests_total{job=\"mailguard-api\",route=\"/verify\",status=~\"5..\"}[$__range])) or vector(0)) / sum(increase(http_requests_total{job=\"mailguard-api\",route=\"/verify\"}[$__range])))",
+              "instant": true,
+              "legendFormat": "valeur"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "mappings": [],
+              "decimals": 3,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 99.5
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "id": 2,
+          "title": "SLO 2 — Latence P95 mesurée",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "gridPos": {
+            "h": 4,
+            "w": 5,
+            "x": 5,
+            "y": 0
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le) (increase(http_request_duration_seconds_bucket{job=\"mailguard-api\",route=\"/verify\"}[$__range])))",
+              "instant": true,
+              "legendFormat": "valeur"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "mappings": [],
+              "decimals": 3,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "blue",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "id": 3,
+          "title": "SLO 2 — Latence P99 mesurée",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "gridPos": {
+            "h": 4,
+            "w": 5,
+            "x": 10,
+            "y": 0
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, sum by (le) (increase(http_request_duration_seconds_bucket{job=\"mailguard-api\",route=\"/verify\"}[$__range])))",
+              "instant": true,
+              "legendFormat": "valeur"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "mappings": [],
+              "decimals": 3,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "blue",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "id": 4,
+          "title": "SLO 3 — Erreurs 5xx (< 0,5 %)",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "gridPos": {
+            "h": 4,
+            "w": 5,
+            "x": 15,
+            "y": 0
+          },
+          "targets": [
+            {
+              "expr": "100 * (sum(increase(http_requests_total{job=\"mailguard-api\",route=\"/verify\",status=~\"5..\"}[$__range])) or vector(0)) / sum(increase(http_requests_total{job=\"mailguard-api\",route=\"/verify\"}[$__range]))",
+              "instant": true,
+              "legendFormat": "valeur"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "mappings": [],
+              "decimals": 3,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.5
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "id": 5,
+          "title": "SLO 4 — Cache hit ratio (> 60 %)",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 20,
+            "y": 0
+          },
+          "targets": [
+            {
+              "expr": "100 * sum(increase(mailguard_cache_hits_total[$__range])) / (sum(increase(mailguard_cache_hits_total[$__range])) + sum(increase(mailguard_cache_misses_total[$__range])))",
+              "instant": true,
+              "legendFormat": "valeur"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "mappings": [],
+              "decimals": 1,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 60
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "id": 6,
+          "title": "Budget de latence P95 consommé — objectif : ${slo_p95}",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 0,
+            "y": 4
+          },
+          "targets": [
+            {
+              "expr": "100 * histogram_quantile(0.95, sum by (le) (increase(http_request_duration_seconds_bucket{job=\"mailguard-api\",route=\"/verify\"}[$__range]))) / ${slo_p95}",
+              "instant": true,
+              "legendFormat": "valeur"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "mappings": [],
+              "decimals": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 100
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "id": 7,
+          "title": "Requêtes /verify sur la fenêtre",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "gridPos": {
+            "h": 4,
+            "w": 5,
+            "x": 8,
+            "y": 4
+          },
+          "targets": [
+            {
+              "expr": "sum(increase(http_requests_total{job=\"mailguard-api\",route=\"/verify\"}[$__range]))",
+              "instant": true,
+              "legendFormat": "valeur"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "mappings": [],
+              "decimals": 0,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "purple"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "purple",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "id": 8,
+          "title": "Pods API scrapés (une série par pod)",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "gridPos": {
+            "h": 4,
+            "w": 5,
+            "x": 13,
+            "y": 4
+          },
+          "targets": [
+            {
+              "expr": "count(up{job=\"mailguard-api\"} == 1)",
+              "instant": true,
+              "legendFormat": "valeur"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "mappings": [],
+              "decimals": 0,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "purple"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "purple",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "id": 9,
+          "title": "Débit moyen sur la fenêtre",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 18,
+            "y": 4
+          },
+          "targets": [
+            {
+              "expr": "sum(increase(http_requests_total{job=\"mailguard-api\",route=\"/verify\"}[$__range])) / ($__range_s)",
+              "instant": true,
+              "legendFormat": "valeur"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "mappings": [],
+              "decimals": 1,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "purple"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "purple",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "id": 10,
+          "title": "Latence p50 / p95 / p99 et objectif P95",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 0,
+            "y": 8
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"mailguard-api\",route=\"/verify\"}[1m])))",
+              "legendFormat": "p50"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"mailguard-api\",route=\"/verify\"}[1m])))",
+              "legendFormat": "p95"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"mailguard-api\",route=\"/verify\"}[1m])))",
+              "legendFormat": "p99"
+            },
+            {
+              "expr": "vector(${slo_p95})",
+              "legendFormat": "objectif P95"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 8
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "objectif P95"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          }
+        },
+        {
+          "id": 11,
+          "title": "Débit de requêtes /verify par statut",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{job=\"mailguard-api\",route=\"/verify\"}[1m])) by (status)",
+              "legendFormat": "{{status}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 8
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          }
+        },
+        {
+          "id": 12,
+          "title": "Cache : hits vs misses",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 17
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(mailguard_cache_hits_total[1m]))",
+              "legendFormat": "hits"
+            },
+            {
+              "expr": "sum(rate(mailguard_cache_misses_total[1m]))",
+              "legendFormat": "misses"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 8
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          }
+        },
+        {
+          "id": 13,
+          "title": "Cibles Prometheus saines (pods API)",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 17
+          },
+          "targets": [
+            {
+              "expr": "count(up{job=\"mailguard-api\"} == 1)",
+              "legendFormat": "pods API up"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 8
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          }
+        }
+      ]
+    }
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -238,13 +946,13 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 384Mi
             limits:
               cpu: 500m
-              # 256Mi mesuré en usage réel (kubectl top) contre une ancienne
-              # limite à 256Mi → quasi 0 marge, probes qui timeout sous pression
-              # mémoire, kubelet qui tue et boucle le pod. 512Mi laisse de la marge.
-              memory: 512Mi
+              # 512Mi encore trop juste : 27 OOMKill cumulés (exit 137) observés
+              # sous la charge des tests k6 + requêtes dashboard répétées.
+              # 1Gi laisse une vraie marge (le nœud minikube a largement la place).
+              memory: 1Gi
           readinessProbe:
             httpGet:
               path: /api/health

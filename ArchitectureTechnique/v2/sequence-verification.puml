@@ -1,0 +1,44 @@
+@startuml sequence-verification
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam dpi 150
+skinparam shadowing false
+skinparam sequenceArrowThickness 1.5
+autonumber
+participant "Client" as C
+participant "API\n(Express)" as A
+participant "Redis" as R
+participant "MongoDB" as D
+participant "Modules\nd'analyse" as M
+participant "Serveur MX\n(SMTP)" as S
+participant "Webhook\ndispatcher" as W
+C -> A : POST /verify {email} + X-API-Key
+A -> D : authentifier (clé API)
+A -> R : rate limit (INCR)
+A -> R : GET verify:<email>
+alt résultat en cache
+  R --> A : résultat
+  A --> C : 200 (cached = true)
+else absent du cache
+  A -> M : Blacklist ∥ MX ∥ WHOIS ∥ ML ∥ Crowdsource
+  M -> R : caches par domaine (mx, whois, ml, crowd)
+  M --> A : scores partiels
+  A -> R : GET smtp:<email>
+  alt SMTP absent du cache
+    A ->> S : sonde SMTP (arrière-plan)
+    note right of A : SMTP = PENDING (score 0)
+  end
+  A -> A : agrégation → score, verdict
+  A -> D : Verification.create + quota
+  A -> R : SETEX verify:<email>
+  A ->> W : dispatch(verdict)
+  A --> C : 200 {verdict, score, details}
+  S -->> A : résultat SMTP (RCPT TO)
+  A -> A : ré-agrégation
+  A -> R : SETEX (TTL complet)
+  A -> D : mise à jour verdict
+  A ->> W : dispatch si le verdict a changé
+end
+@enduml

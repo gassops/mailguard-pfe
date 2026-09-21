@@ -1,0 +1,71 @@
+@startuml architecture-generale
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam dpi 150
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam ArrowColor #555555
+
+actor "Application cliente\n(backend du client)" as app
+actor "Visiteur / utilisateur\ndu tableau de bord" as user
+
+package "Accès" #DBEAFE {
+  component "Ingress nginx\nmailguard.local" as ingress
+  component "Frontend React\n(servi par nginx)" as front
+}
+package "API MailGuard — Node.js / Express" #DCFCE7 {
+  component "Authentification\nX-API-Key" as auth
+  component "Rate limiting Redis\n+ quota mensuel" as rl
+  component "Routes REST\n/verify · /report · /stats\n/webhook · /me · /health" as routes
+}
+package "Moteur d'analyse" #FEF9C3 {
+  component "Blacklist" as m1
+  component "MX" as m2
+  component "Âge du domaine\n(WHOIS)" as m3
+  component "Classifieur ML" as m4
+  component "Crowdsource" as m5
+  component "SMTP\n(en arrière-plan)" as m6
+  component "Score Aggregator\nVALID · SUSPICIOUS · INVALID" as agg #FBBF24
+}
+package "Microservice ML\nFlask + gunicorn" #FEE2E2 {
+  component "POST /predict\nRandom Forest" as ml
+}
+package "Stockage" #FCE7F3 {
+  database "MongoDB 7" as mongo
+  database "Redis 7\ncache · rate limiting" as redis
+}
+package "Observabilité" #EDE9FE {
+  component "Prometheus" as prom
+  component "Grafana" as graf
+  component "Alertmanager" as am
+}
+cloud "Serveur du client\n(URL de webhook)" as wh
+
+app  --> ingress : HTTPS / REST
+user --> front
+front --> ingress
+ingress --> auth
+auth --> rl
+rl --> routes
+routes --> m1
+routes --> m2
+routes --> m3
+routes --> m4
+routes --> m5
+routes ..> m6 : asynchrone
+m1 --> agg
+m2 --> agg
+m3 --> agg
+m4 --> agg
+m5 --> agg
+m6 ..> agg : affinage
+m4 --> ml : HTTP interne
+routes --> mongo : journalisation
+routes --> redis : caches
+routes ..> wh : notification signée HMAC
+prom --> routes : scrape /metrics\n(un target par pod)
+graf --> prom
+prom --> am
+@enduml

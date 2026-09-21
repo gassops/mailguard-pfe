@@ -1,0 +1,33 @@
+@startuml cas-usage-moteur
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam dpi 150
+skinparam shadowing false
+left to right direction
+skinparam actorStyle awesome
+skinparam usecase {
+  BackgroundColor #FEF9C3
+  BorderColor #CA8A04
+}
+actor "Client API" as client #DBEAFE
+rectangle "Moteur d'analyse" {
+  usecase "Vérifier un email" as uc
+  usecase "Détecter un domaine jetable\n(blacklist + heuristiques)" as u1
+  usecase "Valider les enregistrements MX" as u2
+  usecase "Sonder la boîte (SMTP)" as u3
+  usecase "Évaluer l'âge du domaine (WHOIS)" as u4
+  usecase "Classer le domaine (ML)" as u5
+  usecase "Appliquer les signalements\ncrowdsourcés" as u6
+  usecase "Agréger en score et verdict" as u7
+}
+client --> uc
+uc .> u1 : <<include>>
+uc .> u2 : <<include>>
+uc .> u3 : <<include>>
+uc .> u4 : <<include>>
+uc .> u5 : <<include>>
+uc .> u6 : <<include>>
+uc .> u7 : <<include>>
+@enduml

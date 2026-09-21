@@ -1,6 +1,9 @@
 const net = require('net');
 
-const SMTP_TIMEOUT_MS = 10000;
+// Timeout réduit de 10000ms à 300ms — les tests de charge ont montré que le
+// timeout initial de 10s, cumulé avec celui de domainAge.js, dégradait le P95
+// de latence de façon catastrophique sous charge (voir chapitre 6, tests k6).
+const SMTP_TIMEOUT_MS = 300;
 
 /**
  * Module 3 — SMTP Mailbox Check
@@ -24,9 +27,22 @@ async function analyze(email, mx) {
     const done = (result) => {
       if (settled) return;
       settled = true;
+      clearTimeout(overallTimer);
       socket.destroy();
       resolve(result);
     };
+
+    // Délai global sur l'échange SMTP complet — socket.setTimeout() ci-dessous
+    // ne détecte que l'INACTIVITÉ (pas de données reçues pendant X ms) : un
+    // serveur qui répond juste avant chaque expiration (ex : délai de bannière
+    // volontaire chez Gmail/Outlook, technique anti-spam) peut faire durer tout
+    // l'échange (4 allers-retours) bien au-delà de SMTP_TIMEOUT_MS sans jamais
+    // déclencher l'event 'timeout'. Ce minuteur borne la durée totale, quelle
+    // que soit l'activité du socket.
+    const overallTimer = setTimeout(
+      () => done({ exists: null, score: 0, status: 'UNKNOWN', reasons: ['Timeout SMTP (délai global dépassé)'] }),
+      SMTP_TIMEOUT_MS
+    );
 
     socket.setTimeout(SMTP_TIMEOUT_MS);
 

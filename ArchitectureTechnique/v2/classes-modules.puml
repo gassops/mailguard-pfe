@@ -1,0 +1,71 @@
+@startuml classes-modules
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam dpi 150
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor<<module>> #FEF9C3
+  BorderColor<<module>> #CA8A04
+  BackgroundColor<<service>> #EDE9FE
+  BorderColor<<service>> #7C3AED
+  BackgroundColor<<route>> #DCFCE7
+  BorderColor<<route>> #16A34A
+}
+class "routes/verify.js" as V <<route>> {
+  runAnalysis(email, domain)
+  analyzeCachedByDomain(prefix, ttl, domain, fn)
+  resolveSmtp(email, mxHost)
+  refineOnSmtp(smtpDone, ctx)
+}
+class "modules/blacklist" as M1 <<module>> {
+  analyze(email, domain)
+}
+class "modules/mx" as M2 <<module>> {
+  analyze(domain)
+}
+class "modules/smtp" as M3 <<module>> {
+  analyze(email, mxHost)
+}
+class "modules/domainAge" as M4 <<module>> {
+  analyze(domain)
+}
+class "modules/ml" as M5 <<module>> {
+  analyze(email, domain)
+}
+class "modules/crowdsource" as M6 <<module>> {
+  analyze(email, domain)
+}
+class "services/scoreAggregator" as AG <<service>> {
+  WEIGHTS
+  aggregate(moduleResults, thresholds)
+}
+class "services/webhookDispatcher" as WD <<service>> {
+  dispatch(clientId, verdict, result)
+  sign(secret, payload)
+  findWebhookCached(clientId)
+}
+V ..> M1
+V ..> M2
+V ..> M3
+V ..> M4
+V ..> M5
+V ..> M6
+V ..> AG : agrège
+V ..> WD : fire-and-forget
+skinparam nodesep 12
+skinparam ranksep 22
+M1 -[hidden]d-> M4
+M2 -[hidden]d-> M5
+M3 -[hidden]d-> M6
+M4 -[hidden]d-> AG
+M6 -[hidden]d-> WD
+note bottom of M1 : poids 0,55 · max 50
+note bottom of M2 : poids 0,10 · max 20
+note bottom of M3 : poids 0,10 · max 15
+note bottom of M4 : poids 0,07 · max 10
+note bottom of M5 : poids 0,15 · max 15
+note bottom of M6 : poids 0,03 · max 50
+@enduml

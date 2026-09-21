@@ -1,0 +1,38 @@
+@startuml sequence-webhook
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam dpi 150
+skinparam shadowing false
+skinparam sequenceArrowThickness 1.5
+autonumber
+participant "Route /verify" as V
+participant "webhookDispatcher" as W
+participant "Redis" as R
+participant "MongoDB" as D
+participant "Serveur du client" as S
+V ->> W : dispatch(clientId, verdict, résultat)
+W -> R : GET webhook:<clientId>
+alt entrée en cache (y compris « aucun webhook »)
+  R --> W : webhook ou chaîne vide
+else absent du cache
+  W -> D : Webhook.findOne({clientId, active})
+  D --> W : webhook ou null
+  W -> R : SETEX webhook:<clientId> (60 s)
+end
+alt aucun webhook actif ou verdict non souscrit
+  W --> V : fin (aucun appel réseau)
+else verdict souscrit
+  W -> W : payload {event, email, domain, score, verdict, timestamp}
+  W -> W : signature = HMAC-SHA256(secret, payload)
+  W -> S : POST url\nX-MailGuard-Signature: sha256=<hmac> (timeout 5 s)
+  alt 2xx
+    S --> W : 200
+    W -> D : lastTriggered = maintenant
+  else erreur ou timeout
+    S --> W : échec
+    note right of W : journalisé, jamais propagé\n(best-effort, un seul essai)
+  end
+end
+@enduml

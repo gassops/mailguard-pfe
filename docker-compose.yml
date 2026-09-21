@@ -16,6 +16,8 @@ services:
       - REDIS_PORT=6379
       - ML_SERVICE_URL=http://ml:5000
       - CACHE_TTL_SECONDS=3600
+      - UV_THREADPOOL_SIZE=64
+      - WHOIS_CACHE_TTL_SECONDS=86400
     depends_on:
       - mongo
       - redis

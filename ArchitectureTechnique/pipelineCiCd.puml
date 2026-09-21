@@ -1,4 +1,4 @@
-@startuml
+@startuml pipelineCiCd
 skinparam backgroundColor #FEFEFE
 skinparam ArrowColor #333333
 skinparam defaultTextAlignment center

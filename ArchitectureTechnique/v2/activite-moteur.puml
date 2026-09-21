@@ -1,0 +1,50 @@
+@startuml activite-moteur
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam dpi 150
+skinparam shadowing false
+skinparam ActivityBackgroundColor #FEF9C3
+skinparam ActivityBorderColor #CA8A04
+skinparam ActivityDiamondBackgroundColor #EFF6FF
+start
+:Email normalisé + domaine;
+partition "Phase 1 — parallèle (Promise.all)" {
+  fork
+    :Blacklist (MongoDB)\nscore 0–50;
+  fork again
+    :MX (DNS resolveMx)\nscore 0–20;
+  fork again
+    :WHOIS âge du domaine\nscore 0–10;
+  fork again
+    :ML (POST /predict)\nscore 0–15;
+  fork again
+    :Crowdsource (MongoDB)\nscore 0–50;
+  end fork
+}
+partition "Phase 2 — SMTP (dépend du MX résolu)" {
+  if (MX trouvé ?) then (oui)
+    if (SMTP en cache ?) then (oui)
+      :Résultat SMTP du cache;
+    else (non)
+      :Sonde en arrière-plan\nSMTP = PENDING;
+    endif
+  else (non)
+    :SMTP ignoré (score 0);
+  endif
+}
+:Normaliser chaque score (score / max × 100)\net appliquer les poids;
+if (Correction crowdsourcée ?) then (FORCE_INVALID / FORCE_VALID)
+  :Verdict imposé par la communauté;
+else (non)
+  if (score ≤ 20 ?) then (oui)
+    #BBF7D0:VALID;
+  elseif (score ≤ 50 ?) then (oui)
+    #FEF08A:SUSPICIOUS;
+  else (sinon)
+    #FECACA:INVALID;
+  endif
+endif
+stop
+@enduml

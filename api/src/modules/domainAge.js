@@ -78,18 +78,29 @@ async function analyze(domain) {
 /**
  * Encapsule l'API callback du module `whois` dans une Promise
  * pour pouvoir utiliser async/await dans analyze().
- * Timeout fixé à 10 secondes pour ne pas bloquer le pipeline d'analyse.
+ * Timeout réduit de 10000ms à 300ms — voir chapitre 6, tests k6 (le timeout
+ * initial de 10s dégradait catastrophiquement le P95 de latence sous charge).
  *
  * @param {string} domain
  * @returns {Promise<string>} - réponse WHOIS brute en texte
  */
 function lookupWhois(domain) {
-  return new Promise((resolve, reject) => {
-    whois.lookup(domain, { timeout: 10000 }, (err, data) => {
+  const lookupPromise = new Promise((resolve, reject) => {
+    whois.lookup(domain, { timeout: 300 }, (err, data) => {
       if (err) return reject(err);
       resolve(data || '');
     });
   });
+
+  // Le timeout du package `whois` (comme celui de smtp.js) borne l'INACTIVITÉ
+  // du socket, pas la durée totale de l'échange — voir smtp.js pour le détail.
+  // Ce délai global garantit qu'un serveur WHOIS lent ne dépasse jamais 300ms
+  // perçus, même s'il reste techniquement "actif" plus longtemps.
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('lookup: timeout (délai global dépassé)')), 300);
+  });
+
+  return Promise.race([lookupPromise, timeoutPromise]);
 }
 
 /**

@@ -1,0 +1,68 @@
+@startuml diagramme-docker-compose
+!theme plain
+title MailGuard — Environnement de développement (Docker Compose, 8 services)
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 10
+skinparam ArrowColor #555555
+skinparam ArrowThickness 1.5
+
+skinparam node {
+  BackgroundColor #F8FAFC
+  BorderColor #94A3B8
+}
+
+skinparam component {
+  BackgroundColor #DBEAFE
+  BorderColor #3B82F6
+  FontColor #1E3A8A
+}
+
+skinparam database {
+  BackgroundColor #FCE7F3
+  BorderColor #DB2777
+  FontColor #831843
+}
+
+skinparam storage {
+  BackgroundColor #EDE9FE
+  BorderColor #7C3AED
+}
+
+actor "Navigateur" as user
+
+node "Réseau Docker Compose (bridge par défaut)" {
+
+  component "frontend\nNginx / React\nhôte 8080 → 80" as frontend #DCFCE7
+  component "api\nNode.js / Express\nhôte 3000 → 3000" as api #DCFCE7
+  component "ml\nPython / Flask\nhôte 5050 → 5000" as ml #DCFCE7
+
+  database "mongo\nMongoDB 7\nhôte 27017 → 27017" as mongo
+  database "redis\nRedis 7\nhôte 6379 → 6379" as redis
+
+  component "prometheus\nhôte 9091 → 9090\n(9090 occupé sur l'hôte)" as prometheus #EDE9FE
+  component "alertmanager\nhôte 9093 → 9093" as alertmanager #EDE9FE
+  component "grafana\nhôte 3001 → 3000" as grafana #EDE9FE
+
+  storage "volume mongo_data" as vmongo
+  storage "volume prometheus_data" as vprom
+  storage "volume grafana_data" as vgraf
+
+  frontend --> api : /api (proxy nginx)
+  api --> mongo : TCP 27017
+  api --> redis : TCP 6379
+  api --> ml : HTTP :5000
+  api --> prometheus : GET /metrics (scrape 15s)
+  prometheus --> alertmanager : alertes
+  grafana --> prometheus : requêtes PromQL
+
+  mongo --> vmongo
+  prometheus --> vprom
+  grafana --> vgraf
+}
+
+user --> frontend : http://localhost:8080
+user --> grafana : http://localhost:3001
+
+@enduml

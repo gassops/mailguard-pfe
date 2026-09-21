@@ -30,9 +30,13 @@ entity "clients" as clients {
   * _id                    : ObjectId <<CP>>
   --
   nom                      : Chaine
-  email                    : Chaine
+  email                    : Chaine  (unique)
+  motDePasse               : Chaine  (haché bcrypt)
   cleApi                   : Chaine  (unique, idx)
   limiteParMin             : Nombre  (défaut : 100)
+  quotaLimite              : Nombre  (défaut : 100 / mois)
+  quotaUtilise             : Nombre  (défaut : 0)
+  quotaReinitLe            : Date    (1er du mois suivant)
   urlWebhook               : Chaine  (optionnel)
   seuils.suspect           : Nombre  (défaut : 21)
   seuils.invalide          : Nombre  (défaut : 51)

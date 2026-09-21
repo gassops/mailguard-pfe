@@ -21,11 +21,13 @@ spec:
             - containerPort: 5000
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 200m
+              memory: 384Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              # Relevé avec le passage de 2 à 4 workers gunicorn (Dockerfile) —
+              # chaque worker charge sa propre copie du modèle en mémoire.
+              cpu: 1000m
+              memory: 1Gi
           readinessProbe:
             httpGet:
               path: /health

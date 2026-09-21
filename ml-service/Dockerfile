@@ -51,7 +51,12 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 CMD ["gunicorn", \
      "--bind", "0.0.0.0:5000", \
-     "--workers", "2", \
+     # 2 workers insuffisant sous charge concurrente (tests k6, chapitre 6) :
+     # gunicorn sync workers traitent une requête à la fois chacun, donc 2
+     # workers = 2 prédictions en parallèle max, quel que soit le nombre de
+     # requêtes /verify simultanées côté API. Relevé à 4 (cf. cpu limit
+     # k8s/ml-deployment.yaml).
+     "--workers", "4", \
      "--timeout", "60", \
      "--access-logfile", "-", \
      "app:app"]

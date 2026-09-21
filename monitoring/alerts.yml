@@ -4,7 +4,7 @@ groups:
 
       # ── Disponibilité ──────────────────────────────────────────────────────────
       - alert: APIDown
-        expr: up{job="mailguard-api"} == 0
+        expr: (up{job="mailguard-api"} == 0) or absent(up{job="mailguard-api"} == 1)
         for: 1m
         labels:
           severity: critical

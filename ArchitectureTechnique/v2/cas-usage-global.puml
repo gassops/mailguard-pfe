@@ -1,0 +1,52 @@
+@startuml cas-usage-global
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam dpi 150
+skinparam shadowing false
+left to right direction
+skinparam actorStyle awesome
+skinparam usecase {
+  BackgroundColor #EFF6FF
+  BorderColor #3B82F6
+}
+actor "Client API" as client #DBEAFE
+actor "Utilisateur du\ntableau de bord" as user #DCFCE7
+actor "Visiteur anonyme" as visitor #FDE68A
+actor "Exploitant\n(script d'import)" as cron #FEF9C3
+rectangle "Vérification et données" #F8F9FA {
+  usecase "Vérifier un email" as uc1
+  usecase "Vérifier en masse\n(50 max)" as uc2
+  usecase "Vérification gratuite\n(3 / 24 h / IP)" as uc3
+  usecase "Signaler faux positif /\nfaux négatif" as uc8
+  usecase "Configurer un webhook" as uc9
+  usecase "Recevoir une notification\nwebhook signée" as uc10
+  usecase "Consulter la blacklist" as uc11
+}
+rectangle "Compte et exploitation" #F8F9FA {
+  usecase "Créer un compte" as uc4
+  usecase "S'authentifier" as uc5
+  usecase "Consulter profil\net quota" as uc6
+  usecase "Consulter les statistiques" as uc7
+  usecase "Vérifier la santé de l'API" as uc12
+  usecase "Alimenter la blacklist\n(import au démarrage\nou manuel)" as uc13
+}
+client --> uc1
+client --> uc2
+client --> uc6
+client --> uc7
+client --> uc8
+client --> uc9
+client --> uc11
+client --> uc12
+client --> uc10
+user --> uc4
+user --> uc5
+user --> uc6
+user --> uc7
+visitor --> uc3
+cron --> uc13
+uc2 .> uc1 : <<include>>
+uc10 .> uc1 : <<extend>>
+@enduml
