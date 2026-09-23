@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Lance un scénario k6, relit dans Prometheus ce que le SERVEUR a mesuré sur exactement la
-# même fenêtre (P95/P99, hit ratio, 5xx) et capture les dashboards Grafana figés sur cette
-# fenêtre : mesures et captures du rapport sont reproductibles, sans régler
+# même fenêtre (P95/P99, hit ratio, 5xx) et capture le dashboard SLO Grafana figé sur cette
+# fenêtre (les quatre scénarios) : mesures et captures du rapport sont reproductibles, sans régler
 # « Last 15 minutes » à la main.
 #
 # Usage   : API_KEY=mg_xxx tests/k6/run_scenario.sh nominal|stress|spike|cache
@@ -20,7 +20,8 @@ export RUN_ID="${RUN_ID:-$(date +%s)}"
 NS="${NS:-mailguard}"
 SCRIPT="$HERE/${SCENARIO}.js"
 [ -f "$SCRIPT" ] || { echo "scénario inconnu : $SCENARIO" >&2; exit 2; }
-case "$SCENARIO" in stress|spike) SLO_P95=3 ;; *) SLO_P95=0.2 ;; esac   # objectif de latence du scénario (s)
+case "$SCENARIO" in stress) SLO_P95=0.5 ;; spike) SLO_P95=60 ;; *) SLO_P95=0.2 ;; esac   # objectif de latence du scénario (s) ; spike : aucun (60 s = délai k6)
+case "$SCENARIO" in cache) SLO_CACHE=1 ;; *) SLO_CACHE=0 ;; esac   # SLO de cache évalué seulement par le scénario cache (les autres génèrent des adresses inédites : hit ratio nul par construction)
 OUT="$HERE/results"; mkdir -p "$OUT"; STAMP="$(date +%Y%m%d_%H%M%S)"
 
 START=$(date +%s)
@@ -69,11 +70,11 @@ print(f" pods API         : {ready} prêts, {'?' if targets is None else int(tar
 print("=" * 68)
 PY
 
+# Rapport : une seule capture (dashboard SLO) par scénario.
 if [ -n "${CAPTURE_DIR:-}" ] && [ -n "${GRAFANA_PASSWORD:-}" ]; then
   FROM=$(( (START - 30) * 1000 )); TO=$(( (END + 45) * 1000 ))
   ( cd "${SHOT_DIR:-$HERE}" && export NODE_PATH="${SHOT_DIR:-$HERE}/node_modules" && \
-    node "$HERE/capture_grafana.js" mailguard-slo "$FROM" "$TO" "$CAPTURE_DIR/k6_${SCENARIO}_apres_slo.png" "slo_p95=$SLO_P95" && \
-    node "$HERE/capture_grafana.js" mailguard-overview "$FROM" "$TO" "$CAPTURE_DIR/k6_${SCENARIO}_apres_grafana.png" )
+    node "$HERE/capture_grafana.js" mailguard-slo "$FROM" "$TO" "$CAPTURE_DIR/k6_${SCENARIO}_apres_slo.png" "slo_p95=$SLO_P95" "slo_cache=$SLO_CACHE" )
 fi
 echo "k6 exit code : $K6_RC  (0 = tous les seuils respectés, 99 = au moins un seuil franchi)"
 exit $K6_RC

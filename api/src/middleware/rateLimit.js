@@ -2,6 +2,19 @@ const { getRedis } = require('../utils/redis');
 
 const WINDOW_SECONDS = 60; // fenêtre glissante d'1 minute
 
+// INCR, EXPIRE (à la première requête de la fenêtre) et TTL en UN seul aller-retour, exécutés de
+// façon atomique côté Redis. Avant : 2 à 3 appels séquentiels sur le chemin critique de CHAQUE
+// requête, soit autant d'attentes réseau ajoutées à la latence.
+const RATE_LIMIT_SCRIPT = `
+local current = redis.call('INCR', KEYS[1])
+if current == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+return { current, redis.call('TTL', KEYS[1]) }`;
+
+function hit(redis, key) {
+  if (!redis.rateLimitHit) redis.defineCommand('rateLimitHit', { numberOfKeys: 1, lua: RATE_LIMIT_SCRIPT });
+  return redis.rateLimitHit(key, WINDOW_SECONDS);
+}
+
 /**
  * Middleware de rate limiting par clé API — basé sur Redis.
  *
@@ -21,15 +34,8 @@ async function rateLimit(req, res, next) {
   const redisKey  = `ratelimit:${clientId}`;
 
   try {
-    // INCR est atomique — évite les race conditions
-    const current = await redis.incr(redisKey);
-
-    // Première requête de la fenêtre → définir le TTL
-    if (current === 1) {
-      await redis.expire(redisKey, WINDOW_SECONDS);
-    }
-
-    const ttl = await redis.ttl(redisKey);
+    // L'incrément est atomique (script Lua) — évite les race conditions
+    const [current, ttl] = await hit(redis, redisKey);
 
     // Headers standards (RFC 6585)
     res.setHeader('X-RateLimit-Limit',     limit);

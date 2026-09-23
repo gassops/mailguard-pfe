@@ -11,7 +11,8 @@ Datasets :
   Jetables  : StephaneBour/disposable-email-domains  (config/domains.php)
   Jetables  : c-dome/temporary-email                 (list.txt)
   Jetables  : datasets/*.txt                         (fichiers locaux fournis manuellement)
-  Legitimes : etalab/noms-de-domaine-organismes      (domains.csv)
+  Legitimes : etalab/noms-de-domaine-organismes      (domains.csv, administration FR)
+  Legitimes : Tranco top 50 000                      (datasets/legitimate/*.txt, sites populaires)
 
 Pipeline de preparation des donnees (build_dataset) :
   1. Normalisation  — lowercase, strip www., strip espaces/points parasites
@@ -19,19 +20,30 @@ Pipeline de preparation des donnees (build_dataset) :
   3. Verification   — detection des conflits (domaine present dans les deux classes)
   4. Equilibrage    — echantillonnage ALEATOIRE (seed fixe) jusqu'a max_per_class
 
-  NOTE — pourquoi un echantillon equilibre et pas les 260k+ domaines collectes :
-  la classe "legitime" ne vient que d'une seule source (etalab, domaines
-  administratifs francais : .fr/.gouv.fr, noms a tirets). Entrainer sur la
-  totalite des ~192k domaines jetables face a seulement ~72k legitimes tres
-  homogenes fait apprendre au modele que tout domaine "court, .com, sans
-  tiret" est jetable (car statistiquement majoritaire dans ce profil cote
-  jetable) — ce qui produit des faux positifs sur gmail.com, microsoft.com,
-  protonmail.com, etc. (verifie empiriquement). Le sous-echantillonnage
-  equilibre evite ce biais. La detection exhaustive des domaines jetables
-  CONNUS reste de toute facon assuree par la blacklist MongoDB (poids 0.55,
-  couvre les 192k domaines) — le ML sert a generaliser sur des domaines
-  jamais vus via leurs caracteristiques lexicales (chiffres, entropie, TLD,
-  mots-cles), pas a memoriser la liste.
+  NOTE — deux biais ont ete corriges (cf. rapport, chapitre 4) :
+
+  1. Classe "legitime" trop homogene. Elle ne venait que d'etalab (domaines
+     administratifs francais : .fr/.gouv.fr, plusieurs points, noms a tirets).
+     Le modele apprenait "administration francaise = legitime" et, par
+     contraste, "court, .com, un seul point = jetable" : gmail.com, yahoo.com ou
+     outlook.com etaient classes jetables (P > 0,5). La classe legitime est
+     donc desormais alimentee a parts egales par etalab ET par les 50 000
+     sites les plus populaires (Tranco), dont beaucoup sont de courts .com.
+  2. Mot-cle "mail" trouve par sous-chaine. "mail" est dans "gmail",
+     "hotmail" ou "protonmail" : la feature has_suspicious_keyword faisait
+     passer gmail.com de 0,69 a 0,97. Les mots-cles specifiques (mailinator,
+     yopmail...) restent des sous-chaines ; les mots courants (temp, fake,
+     trash...) ne comptent que comme MOTS ENTIERS ; "mail" est retire.
+
+  Le sous-echantillonnage equilibre (seed fixe) est conserve : la detection
+  exhaustive des domaines jetables CONNUS reste assuree par la blacklist
+  MongoDB (poids 0.55, ~190k domaines) ; le ML sert a generaliser sur des
+  domaines jamais vus via leurs caracteristiques lexicales, pas a memoriser
+  la liste.
+
+  Evaluation : outre le split 80/20, le modele est evalue sur des domaines
+  JAMAIS vus a l'entrainement : HOLDOUT_DOMAINS (grandes marques, exclues du
+  jeu d'entrainement) et les domaines jetables non echantillonnes.
 
 Importable par app.py :
   from train import extract_features, FEATURE_COLUMNS
@@ -102,14 +114,45 @@ TLD_RISK: dict = {
     ".sg": -1, ".my": -1, ".th": -1, ".ae": -1, ".sa": -1, ".qa": -1, ".il": -1,
 }
 
-SUSPICIOUS_KEYWORDS = [
-    "temp", "mail", "fake", "trash", "throwaway", "disposable",
-    "spam", "junk", "guerrilla", "mailnull", "sharklasers",
-    "yopmail", "mailinator", "guerrillamail", "tempmail",
-    "discard", "noemail", "dodgit", "spamgourmet", "mailnesia",
-    "trashmail", "throwam", "getairmail", "filzmail", "tempr",
-    "getnada", "maildrop", "spambox", "randommail", "burner",
-    "anonymail", "dispostable", "fakeinbox", "spamfree",
+# Mots-cles propres aux services jetables : recherches par SOUS-CHAINE. Assez longs
+# et distinctifs pour ne pas apparaitre dans un nom legitime.
+DISPOSABLE_BRAND_KEYWORDS = [
+    "guerrilla", "mailnull", "sharklasers", "yopmail", "mailinator", "tempmail",
+    "throwaway", "disposable", "noemail", "dodgit", "spamgourmet", "mailnesia",
+    "trashmail", "throwam", "getairmail", "filzmail", "getnada", "maildrop",
+    "spambox", "randommail", "burnermail", "anonymail", "dispostable",
+    "fakeinbox", "spamfree", "minutemail",
+]
+
+# Mots courants : comptes uniquement comme MOTS ENTIERS (decoupage sur tout ce qui
+# n'est pas une lettre). Une sous-chaine ferait de "template.com" ou "spampoubelle" des
+# faux positifs. "mail" n'y figure volontairement pas : il est dans gmail, hotmail,
+# protonmail, mailfence...
+GENERIC_KEYWORDS = {"temp", "tempr", "fake", "trash", "spam", "junk", "discard", "burner"}
+
+# Conserve pour compatibilite : ensemble des mots-cles utilises.
+SUSPICIOUS_KEYWORDS = DISPOSABLE_BRAND_KEYWORDS + sorted(GENERIC_KEYWORDS)
+
+# Domaines LEGITIMES bien connus, EXCLUS de l'entrainement : ils servent a mesurer si le
+# modele generalise aux grandes marques (aucun ne doit etre classe jetable).
+HOLDOUT_DOMAINS = [
+    # messageries
+    "gmail.com", "yahoo.com", "yahoo.fr", "outlook.com", "hotmail.com", "hotmail.fr",
+    "live.com", "msn.com", "icloud.com", "me.com", "aol.com", "protonmail.com",
+    "proton.me", "gmx.com", "gmx.net", "zoho.com", "yandex.com", "mail.ru",
+    "laposte.net", "orange.fr", "free.fr", "sfr.fr", "wanadoo.fr", "web.de",
+    "t-online.de", "fastmail.com", "tutanota.com", "mail.com",
+    # grandes marques
+    "google.com", "microsoft.com", "apple.com", "amazon.com", "github.com",
+    "linkedin.com", "facebook.com", "twitter.com", "netflix.com", "paypal.com",
+    "stripe.com", "wikipedia.org", "dropbox.com", "spotify.com", "adobe.com",
+    "salesforce.com",
+    # enseignement, institutions, medias
+    "mit.edu", "stanford.edu", "ox.ac.uk", "europa.eu", "who.int", "usa.gov",
+    "lemonde.fr", "bbc.co.uk", "reuters.com",
+    # Tunisie
+    "ooredoo.tn", "topnet.tn", "tunisietelecom.tn", "poste.tn", "biat.com.tn",
+    "horizon-tech.tn",
 ]
 
 MODEL_PATH = os.getenv("MODEL_PATH", "model/classifier.pkl")
@@ -142,6 +185,19 @@ def _get_tld(domain: str) -> str:
     return ""
 
 
+def _has_suspicious_keyword(domain: str) -> bool:
+    """
+    Vrai si le domaine contient un mot-cle de service jetable.
+      - mots-cles specifiques (mailinator, yopmail...) : sous-chaine ;
+      - mots courants (temp, fake, trash...)           : mot entier uniquement.
+    Ainsi "gmail.com" ou "template.com" ne sont pas suspects, "temp-mail.org" l'est.
+    """
+    if any(kw in domain for kw in DISPOSABLE_BRAND_KEYWORDS):
+        return True
+    tokens = [t for t in re.split(r"[^a-z]+", domain) if t]
+    return any(t in GENERIC_KEYWORDS for t in tokens)
+
+
 def extract_features(domain: str) -> dict:
     """
     Extrait les features ML depuis un nom de domaine.
@@ -165,7 +221,7 @@ def extract_features(domain: str) -> dict:
 
     has_digit      = int(bool(re.search(r"\d", name_part)))
     digit_ratio    = sum(c.isdigit() for c in name_part) / max(len(name_part), 1)
-    has_kw         = int(any(kw in domain for kw in SUSPICIOUS_KEYWORDS))
+    has_kw         = int(_has_suspicious_keyword(domain))
     consec_cons    = len(re.findall(r"[bcdfghjklmnpqrstvwxyz]{4,}", name_part))
     num_dots       = domain.count(".")
 
@@ -251,6 +307,30 @@ def _load_local_datasets() -> list:
             logger.info(f"  [local/{fname}] {len(parsed)} domaines bruts")
             domains.extend(parsed)
     return domains
+
+
+_LOCAL_LEGIT_DIR = os.path.join(_LOCAL_DATASETS_DIR, "legitimate")
+
+
+def _load_local_legit() -> dict:
+    """
+    Charge les domaines LEGITIMES fournis en local (datasets/legitimate/*.txt, un domaine par
+    ligne) : une entree {nom_de_fichier: [domaines]} par fichier, pour que l'echantillonnage
+    donne le meme poids a chaque source. Instantane Tranco (https://tranco-list.eu) : versionne
+    dans le depot, le build ne depend donc pas de la disponibilite du site.
+    """
+    sources: dict = {}
+    if not os.path.isdir(_LOCAL_LEGIT_DIR):
+        return sources
+    for fname in sorted(os.listdir(_LOCAL_LEGIT_DIR)):
+        if not fname.endswith(".txt"):
+            continue
+        with open(os.path.join(_LOCAL_LEGIT_DIR, fname), "r", encoding="utf-8", errors="ignore") as f:
+            parsed = _parse_plaintext(f.read())
+        if parsed:
+            logger.info(f"  [local/legitimate/{fname}] {len(parsed)} domaines bruts")
+            sources[f"local/{fname}"] = parsed
+    return sources
 
 
 def _parse_etalab_csv(content: str) -> list:
@@ -415,9 +495,33 @@ def _balance(disposable: list, legit: list, max_per_class: int, seed: int = 42) 
     return disposable, legit
 
 
-def build_dataset(max_per_class: int = 15000) -> pd.DataFrame:
+def _stratified_sample(sources: dict, n: int, seed: int = 42) -> list:
+    """
+    Tire n domaines en donnant le MEME poids a chaque source (tirage a tour de role dans un
+    ordre aleatoire a seed fixe). Si une source est trop petite, les autres completent.
+    Sans cela, la source la plus volumineuse (etalab, ~72 000 entrees) noierait les autres.
+    """
+    rng = random.Random(seed)
+    pools = {name: rng.sample(items, len(items)) for name, items in sources.items()}
+    taken = {name: 0 for name in pools}
+    remaining = n
+    while remaining > 0:
+        progressed = False
+        for name, pool in pools.items():
+            if remaining > 0 and taken[name] < len(pool):
+                taken[name] += 1
+                remaining -= 1
+                progressed = True
+        if not progressed:
+            break
+    return [d for name, pool in pools.items() for d in pool[:taken[name]]]
+
+
+def build_dataset(max_per_class: int = 15000, with_extras: bool = False):
     """
     Construit un DataFrame labelise pret a l'entrainement.
+    Avec with_extras=True, renvoie aussi (df, extras) ou extras contient les jeux d'evaluation
+    JAMAIS vus a l'entrainement : "holdout_legit" (HOLDOUT_DOMAINS) et "unseen_disposable".
 
     Pipeline :
       1. Collecte   — telechargement depuis toutes les sources
@@ -447,47 +551,72 @@ def build_dataset(max_per_class: int = 15000) -> pd.DataFrame:
         logger.warning("  Sources jetables indisponibles — fallback active.")
         raw_disposable = _DISPOSABLE_FALLBACK.copy()
 
-    logger.info(f"\n[Collecte] Telechargement des sources legitimes...")
-    raw_legit: list = []
+    logger.info(f"\n[Collecte] Sources legitimes...")
+    legit_sources: dict = {}
     for src in _LEGIT_SOURCES:
         content = _fetch_raw(src["url"])
         if content:
             parsed = src["parser"](content)
             logger.info(f"  [{src['label']}] {len(parsed)} domaines bruts")
-            raw_legit.extend(parsed)
+            legit_sources[src["label"]] = parsed
+    legit_sources.update(_load_local_legit())
 
-    if len(raw_legit) < 200:
+    if sum(len(v) for v in legit_sources.values()) < 200:
         logger.warning("  Sources legitimes indisponibles — fallback active.")
-        raw_legit = _LEGIT_FALLBACK.copy()
+        legit_sources = {"fallback": _LEGIT_FALLBACK.copy()}
 
     logger.info(
-        f"\n  Brut collecte : {len(raw_disposable)} jetables | {len(raw_legit)} legitimes"
+        f"\n  Brut collecte : {len(raw_disposable)} jetables | "
+        + " + ".join(f"{len(v)} ({k})" for k, v in legit_sources.items())
     )
 
     # ── Etape 1 : Normalisation ───────────────────────────────────────────────
     logger.info("\n[Etape 1] Normalisation des formats...")
     disposable = _normalize(raw_disposable)
-    legit      = _normalize(raw_legit)
-    logger.info(f"  Apres normalisation : {len(disposable)} jetables | {len(legit)} legitimes")
+    legit_sources = {name: _normalize(items) for name, items in legit_sources.items()}
+    logger.info(
+        f"  Apres normalisation : {len(disposable)} jetables | "
+        + " + ".join(f"{len(v)} ({k})" for k, v in legit_sources.items())
+    )
 
     # ── Etape 2 : Deduplication ───────────────────────────────────────────────
     logger.info("\n[Etape 2] Deduplication...")
-    before_d, before_l = len(disposable), len(legit)
+    before_d = len(disposable)
     disposable = _deduplicate(disposable)
-    legit      = _deduplicate(legit)
+    seen_legit: set = set()
+    for name in list(legit_sources):
+        unique = [d for d in _deduplicate(legit_sources[name]) if d not in seen_legit]   # un domaine appartient a une seule source
+        seen_legit.update(unique)
+        legit_sources[name] = unique
+    logger.info(f"  Supprimes : {before_d - len(disposable)} doublons jetables")
     logger.info(
-        f"  Supprimes : {before_d - len(disposable)} doublons jetables | "
-        f"{before_l - len(legit)} doublons legitimes"
+        f"  Apres dedup : {len(disposable)} jetables | "
+        + " + ".join(f"{len(v)} ({k})" for k, v in legit_sources.items())
     )
-    logger.info(f"  Apres dedup : {len(disposable)} jetables | {len(legit)} legitimes")
 
     # ── Etape 3 : Verification des conflits ───────────────────────────────────
     logger.info("\n[Etape 3] Verification des labels (conflits inter-classes)...")
-    disposable, legit = _remove_conflicts(disposable, legit)
+    all_legit = [d for v in legit_sources.values() for d in v]
+    disposable, kept_legit = _remove_conflicts(disposable, all_legit)
+    kept = set(kept_legit)
+    legit_sources = {name: [d for d in items if d in kept] for name, items in legit_sources.items()}
+
+    # ── Etape 3 bis : mise de cote du jeu d'evaluation ───────────────────────
+    holdout = set(HOLDOUT_DOMAINS)
+    legit_sources = {name: [d for d in items if d not in holdout] for name, items in legit_sources.items()}
+    disposable = [d for d in disposable if d not in holdout]
+    logger.info(f"\n[Etape 3 bis] {len(holdout)} domaines de reference exclus de l'entrainement (HOLDOUT_DOMAINS).")
 
     # ── Etape 4 : Equilibrage ─────────────────────────────────────────────────
-    logger.info("\n[Etape 4] Equilibrage des classes...")
+    logger.info("\n[Etape 4] Equilibrage des classes (parts egales entre sources legitimes)...")
+    n_target = min(len(disposable), sum(len(v) for v in legit_sources.values()), max_per_class)
+    legit = _stratified_sample(legit_sources, n_target)
+    disposable_all = disposable
     disposable, legit = _balance(disposable, legit, max_per_class)
+    legit_set = set(legit)
+    for name, items in legit_sources.items():
+        used = sum(1 for d in items if d in legit_set)
+        logger.info(f"  Source legitime {name} : {used} retenus sur {len(items)} disponibles")
 
     # ── Extraction de features + assemblage ──────────────────────────────────
     logger.info("\n[Features] Extraction des features...")
@@ -496,11 +625,13 @@ def build_dataset(max_per_class: int = 15000) -> pd.DataFrame:
     for domain in disposable:
         feats = extract_features(domain)
         feats["label"] = 1
+        feats["domain"] = domain   # trace pour l'analyse d'erreurs (hors features)
         records.append(feats)
 
     for domain in legit:
         feats = extract_features(domain)
         feats["label"] = 0
+        feats["domain"] = domain   # trace pour l'analyse d'erreurs (hors features)
         records.append(feats)
 
     df = pd.DataFrame(records)
@@ -510,14 +641,57 @@ def build_dataset(max_per_class: int = 15000) -> pd.DataFrame:
         f"legitime={int((df['label'] == 0).sum())}"
     )
     logger.info("=" * 60)
-    return df
+
+    if not with_extras:
+        return df
+    used = set(disposable)
+    unseen = [d for d in disposable_all if d not in used]
+    random.Random(7).shuffle(unseen)
+    extras = {
+        "holdout_legit":     [d for d in HOLDOUT_DOMAINS if d not in set(disposable_all)],
+        "unseen_disposable": unseen[:10000],
+    }
+    return df, extras
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ENTRAINEMENT
 # ─────────────────────────────────────────────────────────────────────────────
 
-def train_model(df: pd.DataFrame) -> RandomForestClassifier:
+def _proba(model, domains: list) -> np.ndarray:
+    """P(jetable) du modele pour une liste de domaines."""
+    X = np.array([[extract_features(d)[c] for c in FEATURE_COLUMNS] for d in domains])
+    return model.predict_proba(X)[:, 1]
+
+
+def evaluate_holdouts(model, extras: dict) -> dict:
+    """
+    Evalue le modele sur des domaines JAMAIS vus a l'entrainement.
+      - grandes marques legitimes : aucune ne doit depasser 0,5 ;
+      - domaines jetables non echantillonnes : mesure de generalisation (rappel).
+    """
+    legit_p = _proba(model, extras["holdout_legit"])
+    disp_p  = _proba(model, extras["unseen_disposable"]) if extras["unseen_disposable"] else np.array([])
+    result = {
+        "holdout_n":         len(legit_p),
+        "holdout_flagged":   int((legit_p >= 0.5).sum()),
+        "holdout_mean":      float(legit_p.mean()),
+        "holdout_max":       float(legit_p.max()),
+        "unseen_n":          len(disp_p),
+        "unseen_recall":     float((disp_p >= 0.5).mean()) if len(disp_p) else float("nan"),
+    }
+    logger.info("\nEvaluation sur des domaines JAMAIS vus a l'entrainement :")
+    logger.info(
+        f"  Grandes marques legitimes : {result['holdout_flagged']}/{result['holdout_n']} classees jetables "
+        f"(P moyenne {result['holdout_mean']:.3f}, max {result['holdout_max']:.3f})"
+    )
+    for d, p in sorted(zip(extras["holdout_legit"], legit_p), key=lambda x: -x[1])[:8]:
+        logger.info(f"    {d:<22} P(jetable) = {p:.3f}")
+    if len(disp_p):
+        logger.info(f"  Jetables non echantillonnes : rappel {result['unseen_recall']:.3f} sur {result['unseen_n']} domaines")
+    return result
+
+def train_model(df: pd.DataFrame, extras: dict = None) -> RandomForestClassifier:
     """
     Entraine un RandomForestClassifier.
 
@@ -572,6 +746,9 @@ def train_model(df: pd.DataFrame) -> RandomForestClassifier:
         bar = "|" * int(imp * 40)
         logger.info(f"  {feat:<28} {imp:.4f}  {bar}")
 
+    if extras:
+        evaluate_holdouts(model, extras)
+
     return model
 
 
@@ -584,7 +761,7 @@ def save_model(model: RandomForestClassifier, path: str = MODEL_PATH) -> None:
     artifact = {
         "model":     model,
         "features":  FEATURE_COLUMNS,
-        "version":   "1.0.0",
+        "version":   "1.1.0",
         "algorithm": "RandomForestClassifier",
     }
     joblib.dump(artifact, path, compress=3)
@@ -597,7 +774,7 @@ def save_model(model: RandomForestClassifier, path: str = MODEL_PATH) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    df    = build_dataset()
-    model = train_model(df)
+    df, extras = build_dataset(with_extras=True)
+    model = train_model(df, extras)
     save_model(model)
     logger.info("Entrainement termine.")

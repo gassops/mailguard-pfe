@@ -1,4 +1,4 @@
-const Client = require('../models/Client');
+const { findActiveClientByApiKey } = require('../utils/persistence');
 
 /**
  * Middleware d'authentification par clé API.
@@ -19,7 +19,7 @@ async function auth(req, res, next) {
   }
 
   try {
-    const client = await Client.findOne({ apiKey, active: true }).lean();
+    const client = await findActiveClientByApiKey(apiKey);
 
     if (!client) {
       return res.status(401).json({ error: 'Clé API invalide ou compte désactivé' });

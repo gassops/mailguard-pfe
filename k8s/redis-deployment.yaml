@@ -18,15 +18,23 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
+          # Cache pur : NI RDB NI AOF. Par défaut, l'image sauvegarde un RDB dès 10 000 écritures en
+          # 60 s ; or le fork() de cette sauvegarde double la mémoire du conteneur. Sous charge, cela
+          # dépassait la limite de 128 Mi : Redis se figeait, puis était tué (OOMKilled, code 137),
+          # et TOUTE l'API, qui attend Redis à chaque requête, se figeait avec lui — mesuré : 200
+          # requêtes bloquées 60 s en scénario de stress. Sans persistance, plus de fork.
+          # maxmemory < limite du conteneur + éviction LRU : Redis expulse ses plus anciennes entrées
+          # de cache au lieu de grossir jusqu'à être tué.
+          command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "160mb", "--maxmemory-policy", "allkeys-lru"]
           ports:
             - containerPort: 6379
           resources:
             requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 200m
+              cpu: 100m
               memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
           readinessProbe:
             tcpSocket:
               port: 6379

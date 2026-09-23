@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Campagne complète de validation des SLOs : spike (à froid) -> cache -> nominal -> stress.
 # Chaque scénario est précédé d'une attente du retour de l'HPA à son minimum (2 réplicas),
-# pour que les runs partent des mêmes conditions. Durée totale : ~45 min.
+# pour que les runs partent des mêmes conditions (état « à froid »). Durée totale : ~45 min.
 #
 # Usage : API_KEY=mg_xxx GRAFANA_PASSWORD=... tests/k6/campagne.sh
 #         (port-forward Grafana actif sur 3002 : kubectl port-forward -n mailguard svc/grafana 3002:3000)
@@ -13,13 +13,14 @@ export THINK_TIME="${THINK_TIME:-1}"
 NS="${NS:-mailguard}"
 
 wait_cold() {
-  echo ">>> attente du retour de l'API à 2 réplicas (max 12 min)..."
+  MINR=$(kubectl get hpa api-hpa -n "$NS" -o jsonpath='{.spec.minReplicas}' 2>/dev/null || echo 2)
+  echo ">>> attente du retour de l'API à ${MINR} réplicas, le minimum de l'HPA (max 12 min)..."
   for _ in $(seq 1 72); do
     r=$(kubectl get deploy api -n "$NS" -o jsonpath='{.status.replicas}' 2>/dev/null)
-    [ "${r:-0}" -le 2 ] && { echo ">>> API à ${r} réplicas"; sleep 20; return; }
+    [ "${r:-0}" -le "$MINR" ] && { echo ">>> API à ${r} réplicas"; sleep 20; return; }
     sleep 10
   done
-  echo ">>> /!\\ l'API n'est pas revenue à 2 réplicas : le run part d'un état plus chaud" >&2
+  echo ">>> /!\\ l'API n'est pas revenue à ${MINR} réplicas : le run part d'un état plus chaud" >&2
 }
 
 for s in spike cache nominal stress; do

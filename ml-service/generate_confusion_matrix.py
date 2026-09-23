@@ -10,6 +10,12 @@ sauvegarde produit reellement sur son jeu de test.
 
 Usage :
     python3 generate_confusion_matrix.py
+
+Le modele est entraine avec scikit-learn 1.3.2 (requirements.txt) : pour un resultat
+exactement identique a l'image deployee, executer le script dans un conteneur qui porte
+la meme version, par exemple :
+    docker run --rm -v "$PWD":/w -w /w -e OUTPUT_PATH=/w/confusion_matrix_ml.png python:3.11-slim \
+      sh -c 'pip install -q -r requirements.txt matplotlib seaborn && python generate_confusion_matrix.py'
 """
 
 import joblib
@@ -23,7 +29,8 @@ from sklearn.metrics import confusion_matrix, classification_report, roc_auc_sco
 
 import train as t
 
-OUTPUT_PATH = "/home/mg/PFE_Latex/figures/chap5/confusion_matrix_ml.png"
+import os
+OUTPUT_PATH = os.getenv("OUTPUT_PATH", "/home/mg/PFE_Latex/figures/chap5/confusion_matrix_ml.png")
 
 print("Reconstruction du dataset (memes sources, memes seeds que train.py)...")
 df = t.build_dataset()

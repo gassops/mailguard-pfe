@@ -24,7 +24,14 @@ from train import (
     _parse_php_array,
     _parse_plaintext,
     _parse_etalab_csv,
+    _has_suspicious_keyword,
+    _stratified_sample,
+    _load_local_legit,
+    evaluate_holdouts,
+    build_dataset,
+    HOLDOUT_DOMAINS,
 )
+import train as train_module
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -316,3 +323,123 @@ class TestParsers:
         result = _parse_etalab_csv(content)
         assert "localhost" not in result
         assert "gouv.fr" in result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mots-clés : mots entiers pour les mots courants, sous-chaîne pour les marques
+# (régression : « mail » était trouvé dans gmail.com et faisait passer sa
+# probabilité « jetable » de 0,69 à 0,97)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSuspiciousKeyword:
+
+    @pytest.mark.parametrize("domain", [
+        "gmail.com", "hotmail.com", "protonmail.com", "mailfence.com", "mailchimp.com",
+        "mail.ru", "template.com", "tempo.fr", "contemporary.org", "spamhausx.org",
+    ])
+    def test_domaines_legitimes_ne_sont_pas_suspects(self, domain):
+        assert _has_suspicious_keyword(domain) is False
+
+    @pytest.mark.parametrize("domain", [
+        "tempmail.com", "yopmail.fr", "mailinator.com", "guerrillamail.info",
+        "10minutemail.net", "temp-mail.org", "trash-mail.com", "fake.inbox.io", "spam.example.com",
+    ])
+    def test_services_jetables_sont_suspects(self, domain):
+        assert _has_suspicious_keyword(domain) is True
+
+    def test_les_chiffres_separent_les_mots(self):
+        assert _has_suspicious_keyword("temp123.com") is True
+
+    def test_extract_features_gmail_sans_mot_cle(self):
+        assert extract_features("gmail.com")["has_suspicious_keyword"] == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _stratified_sample() — parts égales entre sources légitimes
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestStratifiedSample:
+
+    def test_parts_egales_entre_sources(self):
+        sources = {"a": [f"a{i}.fr" for i in range(1000)], "b": [f"b{i}.com" for i in range(1000)]}
+        out = _stratified_sample(sources, 100)
+        assert len(out) == 100
+        assert sum(d.startswith("a") for d in out) == 50
+        assert sum(d.startswith("b") for d in out) == 50
+
+    def test_une_source_petite_est_completee_par_les_autres(self):
+        sources = {"petite": [f"p{i}.fr" for i in range(10)], "grande": [f"g{i}.com" for i in range(1000)]}
+        out = _stratified_sample(sources, 100)
+        assert len(out) == 100
+        assert sum(d.startswith("p") for d in out) == 10
+
+    def test_ne_depasse_pas_le_total_disponible(self):
+        out = _stratified_sample({"a": ["a1.fr", "a2.fr"], "b": ["b1.com"]}, 50)
+        assert sorted(out) == ["a1.fr", "a2.fr", "b1.com"]
+
+    def test_reproductible_avec_seed_fixe(self):
+        sources = {"a": [f"a{i}.fr" for i in range(500)], "b": [f"b{i}.com" for i in range(500)]}
+        assert _stratified_sample(sources, 60, seed=42) == _stratified_sample(sources, 60, seed=42)
+
+    def test_sans_doublon(self):
+        sources = {"a": [f"a{i}.fr" for i in range(200)], "b": [f"b{i}.com" for i in range(200)]}
+        out = _stratified_sample(sources, 150)
+        assert len(set(out)) == len(out)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Chargement local des domaines légitimes + jeu d'évaluation mis de côté
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestLocalLegit:
+
+    def test_charge_un_dict_par_fichier(self, tmp_path, monkeypatch):
+        (tmp_path / "top.txt").write_text("google.com\nwikipedia.org\n# commentaire\n")
+        (tmp_path / "ignore.csv").write_text("x.com\n")
+        monkeypatch.setattr(train_module, "_LOCAL_LEGIT_DIR", str(tmp_path))
+        result = _load_local_legit()
+        assert list(result) == ["local/top.txt"]
+        assert result["local/top.txt"] == ["google.com", "wikipedia.org"]
+
+    def test_dossier_absent_donne_dict_vide(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(train_module, "_LOCAL_LEGIT_DIR", str(tmp_path / "absent"))
+        assert _load_local_legit() == {}
+
+
+class TestHoldout:
+
+    def test_les_grandes_marques_sont_exclues_de_l_entrainement(self, monkeypatch):
+        monkeypatch.setattr(train_module, "_fetch_raw", lambda url, timeout=30: "")
+        monkeypatch.setattr(train_module, "_load_local_datasets", lambda: [f"jetable{i}.tk" for i in range(400)])
+        monkeypatch.setattr(train_module, "_load_local_legit",
+                            lambda: {"local/a.txt": [f"legit{i}.com" for i in range(400)] + ["gmail.com", "yahoo.com"]})
+        df, extras = build_dataset(max_per_class=100, with_extras=True)
+        assert "gmail.com" not in set(df["domain"])
+        assert "gmail.com" in extras["holdout_legit"]
+        assert int(df["label"].sum()) == 100 and int((df["label"] == 0).sum()) == 100
+
+    def test_les_jetables_non_echantillonnes_sont_disjoints_de_l_entrainement(self, monkeypatch):
+        monkeypatch.setattr(train_module, "_fetch_raw", lambda url, timeout=30: "")
+        monkeypatch.setattr(train_module, "_load_local_datasets", lambda: [f"jetable{i}.tk" for i in range(400)])
+        monkeypatch.setattr(train_module, "_load_local_legit", lambda: {"local/a.txt": [f"legit{i}.com" for i in range(400)]})
+        df, extras = build_dataset(max_per_class=100, with_extras=True)
+        assert not set(extras["unseen_disposable"]) & set(df["domain"])
+        assert len(extras["unseen_disposable"]) == 300
+
+    def test_evaluate_holdouts_compte_les_faux_positifs(self):
+        class Fake:
+            def predict_proba(self, X):
+                import numpy as np
+                # probabilité 0,9 quand has_suspicious_keyword = 1, sinon 0,1
+                idx = FEATURE_COLUMNS.index("has_suspicious_keyword")
+                p = np.where(X[:, idx] == 1, 0.9, 0.1)
+                return np.column_stack([1 - p, p])
+        extras = {"holdout_legit": ["gmail.com", "google.com", "tempmail.com"], "unseen_disposable": ["yopmail.fr", "example.tk"]}
+        result = evaluate_holdouts(Fake(), extras)
+        assert result["holdout_n"] == 3
+        assert result["holdout_flagged"] == 1
+        assert result["unseen_recall"] == 0.5
+
+    def test_holdout_sans_doublon_ni_domaine_invalide(self):
+        assert len(set(HOLDOUT_DOMAINS)) == len(HOLDOUT_DOMAINS)
+        assert all("." in d for d in HOLDOUT_DOMAINS)

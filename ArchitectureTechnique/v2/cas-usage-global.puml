@@ -14,7 +14,7 @@ skinparam usecase {
 actor "Client API" as client #DBEAFE
 actor "Utilisateur du\ntableau de bord" as user #DCFCE7
 actor "Visiteur anonyme" as visitor #FDE68A
-actor "Exploitant\n(script d'import)" as cron #FEF9C3
+actor "Exploitant /\ntâche planifiée" as cron #FEF9C3
 rectangle "Vérification et données" #F8F9FA {
   usecase "Vérifier un email" as uc1
   usecase "Vérifier en masse\n(50 max)" as uc2
@@ -30,7 +30,7 @@ rectangle "Compte et exploitation" #F8F9FA {
   usecase "Consulter profil\net quota" as uc6
   usecase "Consulter les statistiques" as uc7
   usecase "Vérifier la santé de l'API" as uc12
-  usecase "Alimenter la blacklist\n(import au démarrage\nou manuel)" as uc13
+  usecase "Alimenter la blacklist\n(import, synchronisation\nhebdomadaire, manuel)" as uc13
 }
 client --> uc1
 client --> uc2

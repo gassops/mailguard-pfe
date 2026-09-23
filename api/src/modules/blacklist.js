@@ -1,4 +1,31 @@
 const Domain = require('../models/Domain');
+const { getRedis } = require('../utils/redis');
+
+// La recherche en base ne dépend que du domaine : son résultat (« présent » ou « absent ») est gardé
+// quelques minutes dans Redis. Sans cela, CHAQUE vérification interrogeait MongoDB (190 000 domaines,
+// jointure sur les domaines parents) — le composant le plus sollicité de la pile. Durée courte :
+// un domaine ajouté par une synchronisation ou par les signalements est pris en compte en moins de 5 min.
+const LOOKUP_CACHE_TTL = parseInt(process.env.BLACKLIST_LOOKUP_TTL_SECONDS || '300', 10);
+const lookupKey = (domain) => `bl:${domain}`;
+
+/** @returns {Promise<{source: string}|null>} l'entrée de blacklist du domaine (ou d'un parent), sinon null */
+async function findBlacklisted(domain, domainsToCheck) {
+  try {
+    const cached = await getRedis().get(lookupKey(domain));
+    if (cached !== null) return cached === '' ? null : JSON.parse(cached);
+  } catch (_) { /* Redis indisponible : on interroge MongoDB */ }
+
+  const record = await Domain.findOne({
+    domain:       { $in: domainsToCheck },
+    isDisposable: true,
+    active:       true,
+  }).lean(); // objet brut : hydrater un document Mongoose complet coûte du CPU pour lire 1 champ
+
+  try {
+    await getRedis().setex(lookupKey(domain), LOOKUP_CACHE_TTL, record ? JSON.stringify({ source: record.source }) : '');
+  } catch (_) { /* best-effort */ }
+  return record;
+}
 
 // Fallback minimal identique à _DISPOSABLE_FALLBACK dans train.py
 // Utilisé uniquement si MongoDB n'a pas encore été alimenté par importDomains.js
@@ -49,11 +76,7 @@ async function analyze(email, domain) {
 
   // ── Vérification 1 : blacklist MongoDB (source principale — datasets GitHub) ─
   try {
-    const record = await Domain.findOne({
-      domain:       { $in: domainsToCheck },
-      isDisposable: true,
-      active:       true,
-    });
+    const record = await findBlacklisted(domain, domainsToCheck);
 
     if (record) {
       score   = 50;

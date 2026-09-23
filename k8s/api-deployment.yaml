@@ -4,7 +4,7 @@ metadata:
   name: api
   namespace: mailguard
 spec:
-  replicas: 2
+  replicas: 4   # = minReplicas du HPA (hpa.yaml) : capacité de base dimensionnée pour la charge nominale
   selector:
     matchLabels:
       app: api
@@ -35,21 +35,32 @@ spec:
             - secretRef:
                 name: mailguard-secrets
           resources:
+            # Une vérification consomme ~25-45 ms de CPU (mesuré) : 100m de demande sous-estimait
+            # le besoin réel de 3 à 4 fois (l'HPA voyait des pods « à 300 % »), et une limite de
+            # 500m bridait le CPU (throttling) au moment des rafales, donc la latence.
             requests:
-              cpu: 100m
+              cpu: 250m
               memory: 128Mi
             limits:
-              cpu: 500m
+              cpu: 1000m
               memory: 256Mi
+          # Sondes tolérantes : sous forte charge la boucle d'événements peut retarder la réponse
+          # de /health de plus d'une seconde (timeout par défaut). Avec les valeurs par défaut,
+          # les pods sortaient de l'Ingress (503) puis étaient redémarrés en plein pic, ce qui
+          # aggravait la surcharge au lieu de la réduire.
           readinessProbe:
             httpGet:
               path: /api/v1/health
               port: 3000
             initialDelaySeconds: 10
-            periodSeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /api/v1/health
               port: 3000
-            initialDelaySeconds: 15
+            initialDelaySeconds: 20
             periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6

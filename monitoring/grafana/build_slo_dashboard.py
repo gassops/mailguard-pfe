@@ -4,7 +4,9 @@ et l'insère dans le ConfigMap k8s/grafana.yaml (clé mailguard-slo.json).
 
 Chaque SLI y est affiché face à son objectif, calculé sur TOUTE la plage de temps
 sélectionnée ($__range) : ouvert sur la fenêtre d'un test k6, il donne le verdict
-de conformité de ce test. Le SLO de latence dépend du scénario (variable slo_p95).
+de conformité de ce test. Le SLO de latence dépend du scénario (variable slo_p95) ; le SLO de cache
+n'est évalué que si le trafic peut produire des hits (variable slo_cache : 0 pour les scénarios à
+adresses inédites, où le hit ratio est nul par construction ; 1 par défaut, donc en exploitation).
 
 Usage : python3 monitoring/grafana/build_slo_dashboard.py
 """
@@ -27,8 +29,10 @@ HITS, MISS = inc("mailguard_cache_hits_total"), inc("mailguard_cache_misses_tota
 def steps(*pairs):
     return [{"color": c, "value": v} for c, v in pairs]
 
-def stat(pid, title, expr, x, y, w, h, unit, decimals=None, thr=None, fixed=None, text="value"):
+def stat(pid, title, expr, x, y, w, h, unit, decimals=None, thr=None, fixed=None, text="value", not_evaluated=None):
     defaults = {"unit": unit, "mappings": []}
+    if not_evaluated:   # valeur sentinelle -1 -> libellé neutre (bleu) au lieu d'un rouge trompeur
+        defaults["mappings"] = [{"type": "range", "options": {"from": -1.5, "to": -0.5, "result": {"text": not_evaluated, "color": "blue", "index": 0}}}]
     if decimals is not None:
         defaults["decimals"] = decimals
     if fixed:
@@ -71,8 +75,9 @@ panels = [
          f"100 * ({ERR5} or vector(0)) / {TOTAL}", 15, 0, 5, 4, "percent", 3,
          thr=[("green", None), ("red", 0.5)]),
     stat(5, "SLO 4 — Cache hit ratio (> 60 %)",
-         f"100 * {HITS} / ({HITS} + {MISS})", 20, 0, 4, 4, "percent", 1,
-         thr=[("red", None), ("green", 60)]),
+         f"((100 * {HITS} / ({HITS} + {MISS})) and on() (vector(${{slo_cache}}) == 1))"
+         f" or on() (vector(-1) and on() (vector(${{slo_cache}}) == 0))", 20, 0, 4, 4, "percent", 1,
+         thr=[("red", None), ("green", 60)], not_evaluated="non évalué (adresses inédites)"),
 
     stat(6, "Budget de latence P95 consommé — objectif : ${slo_p95}",
          f"100 * {q(0.95)} / ${{slo_p95}}", 0, 4, 8, 4, "percent", 0,
@@ -105,10 +110,17 @@ dash = {
     "time": {"from": "now-15m", "to": "now"},
     "templating": {"list": [{
         "name": "slo_p95", "label": "Objectif P95 (s)", "type": "custom",
-        "query": "nominal (P95 < 200 ms) : 0.2,stress (P95 < 3 s) : 3", "hide": 0, "multi": False, "includeAll": False,
+        "query": "nominal (P95 < 200 ms) : 0.2,stress (P95 < 500 ms) : 0.5,spike (aucun SLO de latence) : 60", "hide": 0, "multi": False, "includeAll": False,
         "current": {"selected": True, "text": "nominal (P95 < 200 ms)", "value": "0.2"},
         "options": [{"selected": True, "text": "nominal (P95 < 200 ms)", "value": "0.2"},
-                    {"selected": False, "text": "stress (P95 < 3 s)", "value": "3"}],
+                    {"selected": False, "text": "stress (P95 < 500 ms)", "value": "0.5"},
+                    {"selected": False, "text": "spike (aucun SLO de latence)", "value": "60"}],
+    }, {
+        "name": "slo_cache", "label": "SLO cache", "type": "custom",
+        "query": "évalué (trafic réel ou scénario cache) : 1,non évalué (adresses inédites - nominal / stress / spike) : 0", "hide": 0, "multi": False, "includeAll": False,
+        "current": {"selected": True, "text": "évalué (trafic réel ou scénario cache)", "value": "1"},
+        "options": [{"selected": True, "text": "évalué (trafic réel ou scénario cache)", "value": "1"},
+                    {"selected": False, "text": "non évalué (adresses inédites - nominal / stress / spike)", "value": "0"}],
     }]},
     "panels": panels,
 }

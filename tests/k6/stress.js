@@ -1,11 +1,5 @@
-// Test de STRESS — CDC : 200 utilisateurs simultanés, 10 min.
-// Critères : taux d'erreur < 1% (inchangé) et p95 < 3 s.
-//
-// Le CDC fixait initialement p95 < 500 ms. La première campagne de mesure a
-// donné 2,43 s à 4× la charge nominale : ce seuil, posé a priori sans donnée de
-// capacité, a été révisé en un objectif de DÉGRADATION CONTRÔLÉE (le SLO nominal
-// de 200 ms reste inchangé et est validé par nominal.js). Révision documentée
-// dans le rapport, section « Bilan de conformité aux SLOs ».
+// Test de STRESS — CDC : 200 utilisateurs simultanés, 10 min,
+// critère de succès : taux d'erreur < 1%, p95 < 500ms.
 //
 // Contrairement au nominal (charge normale) et au spike (pic soudain), ce
 // test maintient une charge soutenue au-delà de la capacité nominale pour
@@ -50,7 +44,7 @@ export const options = {
   ],
   thresholds: {
     http_req_failed:   ['rate<0.01'],   // taux d'erreur < 1% — critère CDC
-    http_req_duration: ['p(95)<3000'],  // p95 < 3 s — objectif de dégradation contrôlée (révisé, cf. en-tête)
+    http_req_duration: ['p(95)<500'],   // p95 < 500ms — critère CDC
   },
 };
 

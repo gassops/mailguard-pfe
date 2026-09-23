@@ -28,14 +28,16 @@
 // blacklist à 0.55 : un domaine blacklisté (score max 50/50 → 100% → 55 pts)
 // dépasse a lui seul le seuil INVALID (51) — un domaine jetable CONNU doit
 // toujours être INVALID, indépendamment des autres modules.
-// ml à 0.15 (inchangé) : une tentative à 0.20 a été testée mais REJETÉE —
-// preuve empirique que le classifieur lexical seul confond parfois un
-// domaine légitime ordinaire (gmail.com : 95% "jetable" selon le modèle,
-// car lexicalement indiscernable d'un domaine jetable "propre" comme
-// jobraux.com — limite structurelle documentée dans train.py). À 0.20, ce
-// faux positif combiné au score neutre de domainAge (WHOIS en échec → 5/10)
-// suffisait à faire basculer gmail.com en SUSPICIOUS. À 0.15, la marge de
-// sécurité est confirmée : ml (max 15) + domainAge neutre (3.5) = 18.5 < 21.
+// ml à 0.15 : le classifieur est purement lexical (il ne voit que le nom de
+// domaine), donc structurellement limité : "gmail.com" et un domaine jetable
+// "propre" comme "jobraux.com" se ressemblent (~75 % d'exactitude sur son jeu de
+// test, cf. train.py). Une version antérieure, biaisée par son jeu
+// d'entraînement, classait même gmail.com "jetable" à 97 % ; corrigée, elle le
+// place à ~39 % (6/15). Un poids de 0.20 avait été rejeté : ml + domainAge neutre
+// (WHOIS en échec → 5/10) suffisait alors à faire basculer gmail.com en
+// SUSPICIOUS. À 0.15, l'invariant tient QUEL QUE SOIT l'avis du modèle :
+// ml (max 15) + domainAge neutre (3.5) = 18.5 < 21 — le ML seul ne peut jamais
+// rendre suspect un domaine par ailleurs sain.
 // crowdsource abaissé (0.05 → 0.03) : signal secondaire, lent à se déclencher
 // (seuil de 3 signalements), ne doit pas peser autant que les détections
 // automatiques. mx/smtp/domainAge réduits proportionnellement pour que la

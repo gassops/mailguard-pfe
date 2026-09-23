@@ -16,6 +16,7 @@ const connectMongo              = require('./utils/db');
 const connectRedis              = require('./utils/redis');
 const metrics                   = require('./utils/metrics');
 const { importDomains }         = require('../scripts/importDomains');
+const { startCron }             = require('./modules/updateBlacklist');
 
 const authRoutes      = require('./routes/auth');
 const meRoutes        = require('./routes/me');
@@ -72,9 +73,19 @@ async function start() {
     console.warn('[startup] Import domaines échoué (réseau?) :', err.message)
   );
 
-  app.listen(PORT, () => {
+  // Tenir la blacklist à jour : synchronisation hebdomadaire avec la liste de référence
+  startCron();
+
+  const server = app.listen(PORT, () => {
     console.log(`MailGuard API démarrée sur le port ${PORT}`);
   });
+
+  // Le keep-alive de Node (5 s par défaut) est plus court que celui de l'Ingress nginx vers
+  // l'upstream (60 s). nginx réutilise alors une connexion que Node vient de fermer et renvoie
+  // un 502 : erreurs sporadiques, indépendantes de la charge. Node doit garder ses connexions
+  // ouvertes plus longtemps que le proxy placé devant lui.
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout   = 66_000; // doit rester > keepAliveTimeout
 }
 
 // Ne démarre le serveur que si le fichier est exécuté directement (pas importé par Jest)

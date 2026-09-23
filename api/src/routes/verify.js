@@ -5,10 +5,9 @@ const auth         = require('../middleware/auth');
 const rateLimit    = require('../middleware/rateLimit');
 const quota        = require('../middleware/quota');
 const freeQuota    = require('../middleware/freeQuota');
-const Client       = require('../models/Client');
+const persistence  = require('../utils/persistence');
 const { getRedis } = require('../utils/redis');
 const metrics      = require('../utils/metrics');
-const Verification = require('../models/Verification');
 const { aggregate } = require('../services/scoreAggregator');
 const webhookDispatcher = require('../services/webhookDispatcher');
 
@@ -86,26 +85,54 @@ async function analyzeCachedByDomain(prefix, ttl, domain, fn) {
 // il ne doit pas bloquer la réponse. On répond sans lui (statut PENDING, score neutre 0),
 // puis le verdict est affiné en arrière-plan (refineOnSmtp) et le résultat SMTP est mis
 // en cache par adresse pour les appels suivants.
+// Le cache est une optimisation, jamais une condition de réussite : un Redis lent ou indisponible
+// est journalisé et ignoré, la requête continue sans cache.
+function logCacheError(err) {
+  console.error('[cache] Redis indisponible :', err.message);
+  return null;
+}
+
 const SMTP_CACHE_TTL    = parseInt(process.env.SMTP_CACHE_TTL_SECONDS || '3600', 10);
 const PENDING_CACHE_TTL = 60;
 const SMTP_PENDING = { exists: null, score: 0, status: 'PENDING', reasons: [] };
 
-async function resolveSmtp(email, mxHost) {
+// La clé du cache SMTP ne dépend que de l'adresse : on la lit EN PARALLÈLE de la première phase
+// d'analyse au lieu d'attendre la fin de celle-ci (un aller-retour Redis de moins sur le chemin critique).
+async function lookupSmtpCache(email) {
+  try {
+    const cached = await getRedis().get(`smtp:${email}`);
+    return cached ? JSON.parse(cached) : null;
+  } catch (err) {
+    return null; // Redis indisponible : on continue sans cache
+  }
+}
+
+// Disjoncteur : quand une sonde SMTP échoue au niveau du serveur (délai dépassé, connexion refusée,
+// session rejetée : statut UNKNOWN), les sondes suivantes vers ce domaine échoueraient de la même
+// façon — typiquement le port 25 est bloqué sur le réseau. On cesse de sonder ce domaine pendant
+// SMTP_DOWN_TTL au lieu d'ouvrir une connexion, avec sa résolution DNS et ses minuteurs, à CHAQUE
+// vérification. Un résultat définitif (EXISTS / NOT_EXISTS) ne déclenche jamais le disjoncteur.
+const SMTP_DOWN_TTL = parseInt(process.env.SMTP_DOWN_TTL_SECONDS || '300', 10);
+const SMTP_SKIPPED  = { exists: null, score: 0, status: 'UNKNOWN', reasons: [] };
+
+async function lookupSmtpDown(domain) {
+  try { return (await getRedis().get(`smtp:down:${domain}`)) !== null; } catch (err) { return false; }
+}
+
+async function resolveSmtp(email, domain, mxHost, cached, down) {
   if (!mxHost) return { result: await smtp.analyze(email, mxHost), done: null };
+  if (cached) return { result: cached, done: null };
+  if (down)   return { result: SMTP_SKIPPED, done: null };
 
   const redis = getRedis();
   const key = `smtp:${email}`;
 
-  try {
-    const cached = await redis.get(key);
-    if (cached) return { result: JSON.parse(cached), done: null };
-  } catch (err) {
-    // Redis indisponible : on continue sans cache
-  }
-
   const done = smtp.analyze(email, mxHost)
     .then(async (result) => {
-      try { await redis.setex(key, SMTP_CACHE_TTL, JSON.stringify(result)); } catch (err) { /* best-effort */ }
+      try {
+        await redis.setex(key, SMTP_CACHE_TTL, JSON.stringify(result));
+        if (result.status === 'UNKNOWN') await redis.setex(`smtp:down:${domain}`, SMTP_DOWN_TTL, '1');
+      } catch (err) { /* best-effort */ }
       return result;
     })
     .catch(() => null);
@@ -114,16 +141,18 @@ async function resolveSmtp(email, mxHost) {
 }
 
 async function runAnalysis(email, domain) {
-  const [blacklistResult, mxResult, domainAgeResult, mlResult, crowdsourceResult] =
+  const [blacklistResult, mxResult, domainAgeResult, mlResult, crowdsourceResult, smtpCached, smtpDown] =
     await Promise.all([
       blacklist.analyze(email, domain),
       analyzeCachedByDomain('mx', MX_CACHE_TTL, domain, () => mx.analyze(domain)),
       analyzeCachedByDomain('whois', WHOIS_CACHE_TTL, domain, () => domainAge.analyze(domain)),
       analyzeCachedByDomain('ml', ML_CACHE_TTL, domain, () => ml.analyze(email, domain)),
       analyzeCachedByDomain('crowd', CROWD_CACHE_TTL, domain, () => crowdsource.analyze(email, domain)),
+      lookupSmtpCache(email),
+      lookupSmtpDown(domain),
     ]);
 
-  const { result: smtpResult, done: smtpDone } = await resolveSmtp(email, mxResult.mx);
+  const { result: smtpResult, done: smtpDone } = await resolveSmtp(email, domain, mxResult.mx, smtpCached, smtpDown);
 
   return {
     moduleResults: { blacklist: blacklistResult, mx: mxResult, smtp: smtpResult,
@@ -153,7 +182,7 @@ function refineOnSmtp(smtpDone, ctx) {
 
     await getRedis().setex(cacheKey, CACHE_TTL, JSON.stringify(finalResponse));
     if (verificationId) {
-      await Verification.findByIdAndUpdate(verificationId,
+      await persistence.updateVerification(verificationId,
         { score: refined.score, verdict: refined.verdict, details: refined.details });
     }
     if (clientId && refined.verdict !== response.verdict) {
@@ -186,7 +215,7 @@ router.post('/verify', auth, rateLimit, quota, async (req, res) => {
 
   try {
     // ── Cache Redis ────────────────────────────────────────────────────────────
-    const cached = await redis.get(cacheKey);
+    const cached = await redis.get(cacheKey).catch(logCacheError); // échec du cache = simple défaut de cache
     if (cached) {
       metrics.cacheHitsTotal.inc();
       const cachedResponse = { ...JSON.parse(cached), cached: true };
@@ -217,31 +246,22 @@ router.post('/verify', auth, rateLimit, quota, async (req, res) => {
     };
 
     // ── Persistance MongoDB ────────────────────────────────────────────────────
-    const verification = await Verification.create({
-      clientId:  req.client._id,
-      email:     emailNorm,
-      domain,
-      score,
-      verdict,
-      details,
-      processingTimeMs,
-      cached: false,
-    });
-
-    // ── Consommation du quota mensuel ──────────────────────────────────────────
-    const updated = await Client.findByIdAndUpdate(
-      req.client._id,
-      { $inc: { quotaUsed: 1 } },
-      { new: true }
-    );
-    const newRemaining = Math.max(0, (updated?.quotaLimit ?? req.client.quotaLimit ?? 100) - (updated?.quotaUsed ?? (req.client.quotaUsed ?? 0) + 1));
+    // Les deux écritures sont indépendantes : lancées en parallèle (un aller-retour de moins), et
+    // via le pilote natif (voir utils/persistence.js). La réponse n'est toujours envoyée qu'une
+    // fois les données écrites : rien n'est perdu si le pod s'arrête juste après.
+    const [verification] = await Promise.all([
+      persistence.insertVerification({
+        clientId: req.client._id, email: emailNorm, domain, score, verdict, details, processingTimeMs,
+      }),
+      // ── Consommation du quota mensuel ────────────────────────────────────────
+      persistence.incrementQuota(req.client._id),
+      // ── Invalidation du cache stats (pour refresh immédiat côté dashboard) ────
+      redis.del(`stats:${req.client._id}:30`).catch(logCacheError),
+      // ── Mise en cache ────────────────────────────────────────────────────────
+      redis.setex(cacheKey, cacheTtlFor(details), JSON.stringify(response)).catch(logCacheError),
+    ]);
+    const newRemaining = Math.max(0, (req.client.quotaLimit ?? 100) - ((req.client.quotaUsed ?? 0) + 1));
     res.setHeader('X-Quota-Remaining', newRemaining);
-
-    // ── Invalidation du cache stats (pour refresh immédiat côté dashboard) ────
-    await redis.del(`stats:${req.client._id}:30`);
-
-    // ── Mise en cache ──────────────────────────────────────────────────────────
-    await redis.setex(cacheKey, cacheTtlFor(details), JSON.stringify(response));
 
     refineOnSmtp(smtpDone, {
       moduleResults, thresholds: req.client.thresholds, response, cacheKey,
@@ -287,7 +307,7 @@ router.post('/verify/free', freeQuota, async (req, res) => {
   const cacheKey = `verify:${emailNorm}`;
 
   try {
-    const cached = await redis.get(cacheKey);
+    const cached = await redis.get(cacheKey).catch(logCacheError);
     if (cached) {
       metrics.cacheHitsTotal.inc();
       return res.json({ ...JSON.parse(cached), cached: true });
@@ -307,7 +327,7 @@ router.post('/verify/free', freeQuota, async (req, res) => {
       cached: false,
     };
 
-    await redis.setex(cacheKey, cacheTtlFor(details), JSON.stringify(response));
+    await redis.setex(cacheKey, cacheTtlFor(details), JSON.stringify(response)).catch(logCacheError);
     refineOnSmtp(smtpDone, { moduleResults, response, cacheKey });
     metrics.verdictsTotal.inc({ verdict });
 
@@ -348,7 +368,7 @@ router.post('/verify/bulk', auth, rateLimit, async (req, res) => {
     const cacheKey  = `verify:${emailNorm}`;
 
     try {
-      const cached = await redis.get(cacheKey);
+      const cached = await redis.get(cacheKey).catch(logCacheError);
       if (cached) {
         metrics.cacheHitsTotal.inc();
         results.push({ ...JSON.parse(cached), cached: true });
@@ -364,7 +384,7 @@ router.post('/verify/bulk', auth, rateLimit, async (req, res) => {
 
       const response = { email: emailNorm, domain, verdict, score, details, reasons, cached: false };
 
-      await redis.setex(cacheKey, cacheTtlFor(details), JSON.stringify(response));
+      await redis.setex(cacheKey, cacheTtlFor(details), JSON.stringify(response)).catch(logCacheError);
       refineOnSmtp(smtpDone, {
         moduleResults, thresholds: req.client.thresholds, response, cacheKey,
         clientId: req.client._id,

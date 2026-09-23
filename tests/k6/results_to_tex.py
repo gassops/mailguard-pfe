@@ -82,7 +82,7 @@ for scn, p in PREFIX.items():
     if scn == "nominal":
         verdicts.append((scn, "p95 < 200 ms", d["p(95)"] < 200)); verdicts.append((scn, "p99 < 500 ms", d["p(99)"] < 500)); verdicts.append((scn, "0 erreur", nfail == 0))
     elif scn == "stress":
-        verdicts.append((scn, "p95 < 3 s", d["p(95)"] < 3000)); verdicts.append((scn, "erreurs < 1 %", rate < 0.01))
+        verdicts.append((scn, "p95 < 500 ms", d["p(95)"] < 500)); verdicts.append((scn, "erreurs < 1 %", rate < 0.01))
     elif scn == "spike":
         verdicts.append((scn, "erreurs < 20 %", rate < 0.20))
     elif scn == "cache":

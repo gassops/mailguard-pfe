@@ -24,12 +24,15 @@ spec:
             - name: mongo-storage
               mountPath: /data/db
           resources:
+            # MongoDB est sur le chemin de CHAQUE requête (authentification, blacklist, journalisation,
+            # quota). Avec 500m de CPU et 512Mi (cache WiredTiger ≈ 256 Mo), il plafonnait dès 30 req/s
+            # et ralentissait toute l'API : mesuré à 500m / 511Mi, soit exactement ses limites.
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 250m
+              memory: 384Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 1000m
+              memory: 1Gi
           readinessProbe:
             tcpSocket:
               port: 27017

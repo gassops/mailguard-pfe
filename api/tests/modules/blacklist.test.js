@@ -8,6 +8,15 @@ const Domain  = require('../../src/models/Domain');
 const { analyze, detectTypo, extractParentDomains } = require('../../src/modules/blacklist');
 
 // ── Tests de la détection de fautes de frappe ─────────────────────────────
+// Le module lit la blacklist avec .lean() : le mock doit exposer cette méthode.
+// Redis n'est pas initialisé dans ce test unitaire : getRedis() lève, le module retombe sur MongoDB
+// (chemin « Redis indisponible ») — c'est exactement ce que ces tests exercent.
+jest.mock('../../src/utils/redis', () => ({
+  getRedis: () => { throw new Error('Redis non initialisé'); },
+}));
+
+const mockDomain = (value) => Domain.findOne.mockReturnValue({ lean: () => Promise.resolve(value) });
+
 describe('detectTypo()', () => {
   test('détecte gmial.com comme faute de gmail.com', () => {
     expect(detectTypo('gmial.com')).toBe('gmail.com');
@@ -43,7 +52,7 @@ describe('analyze()', () => {
 
   test('retourne score=50 et flagged=true pour un domaine blacklisté', async () => {
     // Mock : MongoDB trouve le domaine dans la blacklist
-    Domain.findOne.mockResolvedValue({ domain: 'mailinator.com', source: 'github' });
+    mockDomain({ domain: 'mailinator.com', source: 'github' });
 
     const result = await analyze('user@mailinator.com', 'mailinator.com');
 
@@ -54,7 +63,7 @@ describe('analyze()', () => {
 
   test('retourne score=0 et flagged=false pour un domaine propre', async () => {
     // Mock : MongoDB ne trouve rien
-    Domain.findOne.mockResolvedValue(null);
+    mockDomain(null);
 
     const result = await analyze('user@gmail.com', 'gmail.com');
 
@@ -63,7 +72,7 @@ describe('analyze()', () => {
   });
 
   test('retourne score=25 pour un email de rôle (admin@)', async () => {
-    Domain.findOne.mockResolvedValue(null);
+    mockDomain(null);
 
     const result = await analyze('admin@example.com', 'example.com');
 
@@ -72,7 +81,7 @@ describe('analyze()', () => {
   });
 
   test('retourne score=30 pour une faute de frappe (gmial.com)', async () => {
-    Domain.findOne.mockResolvedValue(null);
+    mockDomain(null);
 
     const result = await analyze('user@gmial.com', 'gmial.com');
 
@@ -82,7 +91,7 @@ describe('analyze()', () => {
 
   test('le score maximal (50) prime sur les autres vérifications', async () => {
     // Domaine blacklisté ET email de rôle → score = 50 (pas 25)
-    Domain.findOne.mockResolvedValue({ domain: 'mailinator.com', source: 'github' });
+    mockDomain({ domain: 'mailinator.com', source: 'github' });
 
     const result = await analyze('admin@mailinator.com', 'mailinator.com');
 
@@ -108,7 +117,7 @@ describe('analyze() — domaines jetables connus (incl. Temp-Mail)', () => {
   ];
 
   test.each(KNOWN_DISPOSABLE_DOMAINS)('%s est détecté par la blacklist (score=50, flagged=true)', async (domain) => {
-    Domain.findOne.mockResolvedValue({ domain, source: 'local-dataset' });
+    mockDomain({ domain, source: 'local-dataset' });
 
     const result = await analyze(`user123@${domain}`, domain);
 
@@ -120,7 +129,7 @@ describe('analyze() — domaines jetables connus (incl. Temp-Mail)', () => {
   test('un domaine jetable connu reste détecté même sans signal local-part suspect', async () => {
     // "contact" est un prefixe de role ET le domaine est blacklisté :
     // le score doit rester à 50 (le max), pas la somme des deux signaux.
-    Domain.findOne.mockResolvedValue({ domain: 'jobraux.com', source: 'local-dataset' });
+    mockDomain({ domain: 'jobraux.com', source: 'local-dataset' });
 
     const result = await analyze('contact@jobraux.com', 'jobraux.com');
 

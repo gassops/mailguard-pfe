@@ -125,7 +125,7 @@ export default function ModuleCard({ moduleKey, config, data }: Props) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-semibold text-gray-900">{config.name}</span>
-            <span className="text-xs text-gray-400">×{config.weight}</span>
+            <span className="text-xs text-gray-400">×{data.weight ?? config.weight}</span>
             <span className={`text-xs px-1.5 py-0.5 rounded border ${getSeverityClass(data.severity)}`}>{data.severity}</span>
           </div>
           <div className="flex items-center gap-2 mt-1.5">

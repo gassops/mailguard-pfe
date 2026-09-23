@@ -271,6 +271,45 @@ describe('POST /api/v1/verify', () => {
     expect(cached.score).toBe(res1.body.score);
   });
 
+  test('disjoncteur SMTP : après un échec de sonde, le domaine n\'est plus sondé et la réponse n\'est plus PENDING', async () => {
+    const smtp = require('../../src/modules/smtp');
+    const { getRedis } = require('../../src/utils/redis');
+    smtp.analyze.mockClear();
+    smtp.analyze.mockResolvedValueOnce({ score: 0, exists: null, status: 'UNKNOWN', reasons: ['Timeout SMTP'] });
+
+    const first = await request(app).post('/api/v1/verify').set('X-API-Key', apiKey).send({ email: 'one@gmail.com' });
+    expect(first.body.details.smtp_check.status).toBe('PENDING');
+
+    // L'échec de la sonde arme le disjoncteur pour le domaine
+    let armed = null;
+    for (let i = 0; i < 40 && armed === null; i++) {
+      armed = await getRedis().get('smtp:down:gmail.com');
+      if (armed === null) await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(armed).not.toBeNull();
+    expect(smtp.analyze).toHaveBeenCalledTimes(1);
+
+    // Autre adresse du même domaine : aucune sonde, statut définitif UNKNOWN (et non PENDING)
+    const second = await request(app).post('/api/v1/verify').set('X-API-Key', apiKey).send({ email: 'two@gmail.com' });
+    expect(second.status).toBe(200);
+    expect(second.body.details.smtp_check.status).toBe('UNKNOWN');
+    expect(smtp.analyze).toHaveBeenCalledTimes(1);
+  });
+
+  test('un résultat SMTP définitif (boîte inexistante) n\'arme jamais le disjoncteur', async () => {
+    const smtp = require('../../src/modules/smtp');
+    const { getRedis } = require('../../src/utils/redis');
+    smtp.analyze.mockResolvedValueOnce({ score: 15, exists: false, status: 'NOT_EXISTS', reasons: ['Boîte mail inexistante'] });
+
+    await request(app).post('/api/v1/verify').set('X-API-Key', apiKey).send({ email: 'nobody@outlook.com' });
+    for (let i = 0; i < 40; i++) {                                    // laisse la sonde d'arrière-plan se terminer
+      const c = await getRedis().get('smtp:nobody@outlook.com');
+      if (c) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(await getRedis().get('smtp:down:outlook.com')).toBeNull();
+  });
+
   test('SMTP asynchrone : réponse PENDING, puis verdict affiné en cache et en base', async () => {
     const smtp = require('../../src/modules/smtp');
     smtp.analyze.mockResolvedValueOnce({
